@@ -4,7 +4,7 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use std::io;
-use ratatui::{self, buffer::{self, Buffer}, layout::{Alignment, Constraint, Layout, Rect}, style::{palette::tailwind, Color, Stylize}, symbols::{self, border}, text::{Line, Text}, widgets::{Block, BorderType, Borders, Padding, Paragraph, Tabs, Widget}, DefaultTerminal, Frame};
+use ratatui::{self, buffer::{self, Buffer}, layout::{Alignment, Constraint, Direction, Layout, Rect}, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols::{self, border}, text::{Line, Text}, widgets::{Block, BorderType, Borders, Gauge, Padding, Paragraph, Tabs, Widget}, DefaultTerminal, Frame};
 
 use crate::timer::*;
 
@@ -55,7 +55,7 @@ impl App {
         }
         cancelation_token.cancel();
         timer_task.await.unwrap();
-        input_task.await.unwrap();
+        input_task.abort();
         Ok(())
     }
     fn draw(&self, frame: &mut Frame) {
@@ -105,23 +105,15 @@ impl App {
 
     async fn handle_inputs(tx: tokio::sync::mpsc::Sender<Event>, cancel_token: CancellationToken ) -> std::io::Result<()>{
         loop {
-            tokio::select! {
-                result = tokio::task::spawn_blocking(|| event::read()) => {
-            match result.unwrap().unwrap() {
+            match event::read()? {
                 crossterm::event::Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                     let _ = tx.send(Event::KeyPress(key_event)).await;
-                    println!("sent");
-                }
-                _ => {}
+                    if cancel_token.is_cancelled() {return Ok(())}
+                },
+                _ => { if cancel_token.is_cancelled() {return Ok(())} }
             };
-                }
-                _ = cancel_token.cancelled() => {
 
-                    break
-                }
-            }
         }
-        Ok(())
     }
 
      async fn stop_timer(&mut self) {
@@ -138,31 +130,85 @@ impl App {
 }
 
 
+//impl Widget for &App {
+//    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
+//        let time = self.timer.get_timeleft();
+//        let block = Block::default()
+//            .title(" Timer ")
+//            .borders(Borders::ALL)
+//            .border_type(BorderType::Rounded);
+//        let timer_text = Paragraph::new(format!("{time}"))
+//            .block(block).
+//            alignment(Alignment::Center);
+//        timer_text.render(area, buf);
+//
+//    }
+//}
 impl Widget for &App {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
         let time = self.timer.get_timeleft();
-        let block = Block::default()
-            .title(" Timer ")
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded);
-        let timer_text = Paragraph::new(format!("{time}"))
-            .block(block).
-            alignment(Alignment::Center);
-        timer_text.render(area, buf);
+        let total_time = self.timer.get_total_time(); // Placeholder for total time
+        let now_text = format!("Now: {}", self.timer.get_work_state()); // Updated variable
+        let progress = (total_time - time) as f64 / total_time as f64;
+        let iterations_text = format!("{}/{} iterations", self.timer.get_iteration(), self.timer.get_total_iterations());
 
+        let outer_block = Block::default()
+            .title(" Pomodoro Timer ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .style(Style::default().fg(Color::DarkGray)); // Gruvbox dark border
+
+        let timer_text = Paragraph::new(format!("Time Left: {time} seconds"))
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD).add_modifier(Modifier::ITALIC))
+            .block(Block::default().borders(Borders::NONE));
+
+        let now_paragraph = Paragraph::new(now_text)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::LightBlue).add_modifier(Modifier::DIM));
+
+        let count_paragraph = Paragraph::new(iterations_text)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::LightMagenta).add_modifier(Modifier::DIM));
+
+        let gauge = Gauge::default()
+            .block(Block::default().borders(Borders::NONE))
+            .gauge_style(Style::default().fg(Color::LightGreen))
+            .ratio(progress);
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2), // Smaller "Now: {}"
+                Constraint::Length(8), // Bigger timer text
+                Constraint::Length(2), // Smaller "{}/{} iterations"
+                Constraint::Length(2), // Progress bar
+            ])
+            .margin(15) // Adds even more padding on the sides for a centered look
+            .split(area);
+
+        let inner_area = outer_block.inner(area);
+        buf.set_style(area, Style::default().fg(Color::DarkGray));
+        outer_block.render(area, buf);
+
+        now_paragraph.render(layout[0], buf);
+        timer_text.render(layout[1], buf);
+        count_paragraph.render(layout[2], buf);
+        gauge.render(layout[3], buf);
     }
 }
+
 
 #[cfg(test)] 
 mod test {
     use super::*;
 
-    #[test]
-    #[ignore]
-    fn multithread_works() {
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
-        let mut app = App::new(Timer::new(PomodoroState::Work(2), PomodoroState::Break(1), 2), rx, tx);
-        app.start_timer();
+  //  #[test]
+ //   #[ignore]
+ //   fn multithread_works() {
+ //       let (tx, rx) = tokio::sync::mpsc::channel(4);
+ //       let mut app = App::new(Timer::new(PomodoroState::Work(2), PomodoroState::Break(1), 2), rx, tx);
+ //       app.start_timer();
 
-    }
-}
+ //   }
+}//

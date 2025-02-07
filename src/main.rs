@@ -24,8 +24,7 @@ async fn main() -> std::io::Result<()>{
     let mut app = App::new(timerr, tx, tx_commands);
     let app_result = app.run(&mut terminal,rx_events,tx_events,rx,rx_commands).await;
     ratatui::restore();
-    app_result?;
-    Ok(())
+    app_result
 //    while iterations <= 4 {
 //        let mut duration: u8 = match current_state {
 //            PomodoroState::Work(_) => {

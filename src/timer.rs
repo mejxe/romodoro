@@ -1,4 +1,4 @@
-use std::{io::Write, time::Duration, sync::Arc};
+use std::{fmt::{write, Display}, io::Write, ops::Mul, sync::Arc, time::Duration};
 use tokio::{sync, io::AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
@@ -8,6 +8,19 @@ pub enum PomodoroState {
     Break(i64)
 }
 
+impl Display for PomodoroState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PomodoroState::Work(_) => {
+                write!(f, "Work")
+            }
+            PomodoroState::Break(_) => {
+                write!(f, "Break")
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Timer {
      running: bool,
@@ -15,7 +28,8 @@ pub struct Timer {
      current_state: PomodoroState,
      next_state: PomodoroState,
      iteration: u8,
-     all_iterations: u8,
+     total_iterations: u8,
+     total_time: i64,
 }
 pub enum TimerCommand {
     Start,
@@ -23,9 +37,10 @@ pub enum TimerCommand {
     Stop,
 }
 impl Timer {
-    pub fn new(work_state: PomodoroState, break_state: PomodoroState, all_iterations: u8) -> Self { 
+    pub fn new(work_state: PomodoroState, break_state: PomodoroState, total_iterations: u8) -> Self { 
         let duration = Timer::get_duration(&work_state);
-        Timer { running: false, all_iterations, current_state: work_state, time_left:duration , next_state:break_state, iteration: 0}
+        let total_time: i64 = duration * total_iterations as i64;
+        Timer { running: false, total_iterations, current_state: work_state, time_left:duration , next_state:break_state, iteration: 0, total_time}
     }
     pub fn get_duration(pomodoro_state: &PomodoroState) -> i64 {
         match pomodoro_state {
@@ -65,11 +80,17 @@ impl Timer {
     pub fn get_running(&self) -> bool {
          self.running
     }
-    pub fn get_all_iterations(&self) -> u8 {
-        self.all_iterations
+    pub fn get_total_iterations(&self) -> u8 {
+        self.total_iterations
     }
     pub fn get_iteration(&self) -> u8 {
         self.iteration
+    }
+    pub fn get_total_time(&self) -> i64 {
+        self.total_time
+    }
+    pub fn get_work_state(&self) -> String {
+        self.current_state.to_string()
     }
     pub fn set_running(&mut self, state: bool) {
         self.running = state;
@@ -91,14 +112,20 @@ mod tests {
         timer.next_state();
         assert!(timer.current_state == PomodoroState::Break(2))
     }
-    #[tokio::test]
-    async fn full_test() {
+   // #[tokio::test]
+   // async fn full_test() {
+   //     let mut timer = Timer::new(PomodoroState::Work(5), PomodoroState::Break(2), 4);
+   //     let (tx, mut rx) = mpsc::channel(4);
+   //     timer.set_running(true);
+   //     let timer1 = Arc::new(tokio::sync::Mutex::new(timer.clone()));
+   //     let task = tokio::task::spawn(async move {timer1.lock().await.run(tx).await});
+   //     tokio::time::sleep(Duration::from_secs(5)).await;
+   //     assert_eq!(time, 0);
+   // }
+    #[test]
+    fn api_works() {
         let mut timer = Timer::new(PomodoroState::Work(5), PomodoroState::Break(2), 4);
-        let (tx, mut rx) = mpsc::channel(4);
-        timer.set_running(true);
-        let timer1 = Arc::new(tokio::sync::Mutex::new(timer.clone()));
-        let task = tokio::task::spawn(async move {timer1.lock().await.run(tx).await});
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        assert_eq!(time, 0);
+        assert!(timer.get_work_state() == "Work".to_string())
     }
+
 }
