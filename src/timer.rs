@@ -30,6 +30,7 @@ pub struct Timer {
      iteration: u8,
      total_iterations: u8,
      total_time: i64,
+     total_elapsed: i64,
 }
 pub enum TimerCommand {
     Start,
@@ -40,7 +41,7 @@ impl Timer {
     pub fn new(work_state: PomodoroState, break_state: PomodoroState, total_iterations: u8) -> Self { 
         let duration = Timer::get_duration(&work_state);
         let total_time: i64 = duration * total_iterations as i64;
-        Timer { running: false, total_iterations, current_state: work_state, time_left:duration , next_state:break_state, iteration: 0, total_time}
+        Timer { running: false, total_iterations, current_state: work_state, time_left:duration , next_state:break_state, iteration: 1, total_time, total_elapsed: 0}
     }
     pub fn get_duration(pomodoro_state: &PomodoroState) -> i64 {
         match pomodoro_state {
@@ -59,6 +60,7 @@ impl Timer {
              }
              _ = tokio::time::sleep(Duration::from_secs(1)), if self.running && self.time_left > 0 => {
                  self.time_left -= 1;
+                 self.total_elapsed += 1;
                  sender.send(self.time_left).await.unwrap();
              }
              _ = close.cancelled() => {break}
@@ -88,6 +90,9 @@ impl Timer {
     }
     pub fn get_total_time(&self) -> i64 {
         self.total_time
+    }
+    pub fn get_total_elapsed_time(&self) -> i64 {
+        self.total_elapsed
     }
     pub fn get_work_state(&self) -> String {
         self.current_state.to_string()
