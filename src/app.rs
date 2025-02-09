@@ -1,29 +1,32 @@
-
-use std::{fmt::format, process::exit, sync::{Arc, Mutex}, thread::{self, JoinHandle}, time::Duration};
+use std::{fmt::format, num, process::exit, sync::{Arc, Mutex}, thread::{self, JoinHandle}, time::Duration};
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use std::io;
-use ratatui::{self, buffer::{self, Buffer}, layout::{Alignment, Constraint, Direction, Layout, Rect}, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols::{self, border}, text::{Line, Span, Text}, widgets::{Block, BorderType, Borders, Gauge, Padding, Paragraph, Tabs, Widget}, DefaultTerminal, Frame};
-
+use num_traits::PrimInt;
+use ratatui::{self, buffer::{self, Buffer}, layout::{Alignment, Constraint, Direction, Layout, Margin, Rect}, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols::{self, border}, text::{Line, Span, Text}, widgets::{Block, BorderType, Borders, Gauge, Padding, Paragraph, Tabs, Widget}, DefaultTerminal, Frame};
 use crate::timer::*;
+use crate::romodoro::Pomodoro;
 
+const DEFAULT_WORK: i64 = 1800;
+const DEFAULT_BREAK: i64 = 300;
+const WORK_TIME_INCR: i64 = 900;
+const BREAK_TIME_INCR: i64 = 60;
 
 #[derive(Debug)]
 pub struct App {
     exit: bool,
-    timer: Timer,
+    pomodoro: Pomodoro,
     selected_tab: usize,
-    time_sender: tokio::sync::mpsc::Sender<i64>,
-    command_tx: tokio::sync::mpsc::Sender<TimerCommand>,
+    settings: SettingsTab,
 }
 pub enum Event {
     TimerTick(i64),
     KeyPress(KeyEvent),
 }
 impl App {
-    pub fn new(timer: Timer, time_sender: tokio::sync::mpsc::Sender<i64>,command_tx: tokio::sync::mpsc::Sender<TimerCommand> )-> Self {
-        App{timer, exit:false, time_sender, command_tx, selected_tab: 0}
+    pub fn new(pomodoro: Pomodoro)-> Self {
+        App{pomodoro, exit:false, selected_tab: 0, settings: SettingsTab{selected_setting: 0, work_time:DEFAULT_WORK, break_time:DEFAULT_BREAK}}
     }
     pub async fn run(
         &mut self,
@@ -31,7 +34,6 @@ impl App {
         mut rx: tokio::sync::mpsc::Receiver<Event>,
         tx: tokio::sync::mpsc::Sender<Event>,
         mut time_rx:tokio::sync::mpsc::Receiver<i64>,
-        mut command_rx: tokio::sync::mpsc::Receiver<TimerCommand>
         )
         -> io::Result<()> {
 
@@ -42,14 +44,14 @@ impl App {
         let timer_comm_cancel = cancelation_token.clone();
         let timer_cancel = cancelation_token.clone();
         let input_task = tokio::spawn(async move {App::handle_inputs(tx_inputs, input_cancel).await;});
-        let timer_task = tokio::spawn(async move {App::handle_timer(&mut time_rx, tx_timer, timer_comm_cancel).await;});
-        self.create_timer(command_rx, timer_cancel);
+        let timer_task = tokio::spawn(async move {Pomodoro::handle_timer(&mut time_rx, tx_timer, timer_comm_cancel).await;});
+        self.pomodoro.create_timer(timer_cancel);
         terminal.draw(|frame| self.draw(frame))?;
         while !self.exit {
             if let Some(event) = rx.recv().await {
                 match event {
                     Event::KeyPress(key) => {self.handle_key_event(key).await;},
-                    Event::TimerTick(time) => {self.timer.set_time_left(time);}
+                    Event::TimerTick(time) => {self.pomodoro.set_time_left(time);}
                 }
             }
             terminal.draw(|frame| self.draw(frame))?;
@@ -63,47 +65,34 @@ impl App {
         frame.render_widget(self, frame.area());
     }
      async fn handle_key_event(&mut self, key_event: KeyEvent) {
-        match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            KeyCode::Char(' ') => self.send_commands(TimerCommand::Start).await,
-            KeyCode::Char('s') => self.send_commands(TimerCommand::Stop).await,
-            KeyCode::Tab => self.change_tab(),
-            _ => {},
-        }
-    }
-
-     pub fn create_timer(&mut self, command_rx: tokio::sync::mpsc::Receiver<TimerCommand>, cancel_token: CancellationToken) { 
-         let sender = self.time_sender.clone();
-         let mut timer = self.timer.clone();
-
-         tokio::task::spawn({
-             async move {
-                 timer.run(sender, command_rx, cancel_token).await;
+         //global
+         match key_event.code {
+             KeyCode::Char('q') => self.exit(),
+             KeyCode::Tab => self.change_tab(),
+             _ => {},
+         }
+         match self.selected_tab {
+             0 => {
+                 // timer
+                 match key_event.code {
+                     KeyCode::Char(' ') => self.pomodoro.cycle().await,
+                     _ => {},
+                 }
+             },
+             1 => match key_event.code {
+                 // settings
+                 KeyCode::Down => self.settings.select_down(),
+                 KeyCode::Up => self.settings.select_up(),
+                 KeyCode::Right => self.settings.increment(),
+                 KeyCode::Left => self.settings.decrement(),
+                 KeyCode::Char(' ') => self.update_settings().await,
+                 _ => {},
              }
-         });
-        
-    }
-    async fn send_commands(&self, command: TimerCommand) {
-        let _ = self.command_tx.send(command).await;
-    }
+             _ => {},
+             }
+         }
 
-        
-    pub async fn handle_timer(time_rx: &mut tokio::sync::mpsc::Receiver<i64>, tx: tokio::sync::mpsc::Sender<Event>, cancel_token: CancellationToken) {
-        loop {
-            tokio::select! {
-                time = time_rx.recv() => {
-                    match time {
-                        Some(time) => {let _ = tx.send(Event::TimerTick(time)).await;},
-                        None => {break},
-                    }
-                }
-                _ = cancel_token.cancelled() => {
-                    break
-                }
 
-            }
-        }
-    }
 
     async fn handle_inputs(tx: tokio::sync::mpsc::Sender<Event>, cancel_token: CancellationToken ) -> std::io::Result<()>{
         loop {
@@ -117,6 +106,27 @@ impl App {
 
         }
     }
+    async fn update_settings(&mut self) {
+        let break_time = self.settings.get_setting(Settings::BreakTime(None));
+        let work_time = self.settings.get_setting(Settings::WorkTime(None));
+        let iterations = self.settings.get_setting(Settings::Iterations(None));
+        let current_break_time: Settings = self.pomodoro.get_break_state().into();
+        let current_work_time: Settings = self.pomodoro.get_work_state().into();
+        let current_iterations: Settings = Settings::Iterations(Some(*self.pomodoro.get_iterations()));
+        if current_break_time != break_time {
+            self.pomodoro.send_commands(TimerCommand::Customize(break_time)).await;
+            self.pomodoro.timer.set_setting(break_time);
+        }
+        if current_work_time != work_time {
+            self.pomodoro.send_commands(TimerCommand::Customize(work_time)).await;
+            self.pomodoro.timer.set_setting(work_time);
+        }
+        if current_iterations != iterations {
+            self.pomodoro.send_commands(TimerCommand::Customize(iterations)).await;
+            self.pomodoro.timer.set_setting(iterations);
+        }
+    }
+
 
      fn change_tab(&mut self) {
          if self.selected_tab == 2 {
@@ -128,6 +138,7 @@ impl App {
     fn exit(&mut self) {
         self.exit = true;
     }
+    
 }
 // UI 
 impl Widget for &App {
@@ -141,7 +152,7 @@ impl Widget for &App {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Double)
                 .title(" Menu ")
-                .border_style(Style::default().fg(Color::Rgb(99, 150, 99)))) // Match Pomodoro timer border color
+                .border_style(Style::default().fg(Color::Rgb(215,153,33)))) // Match Pomodoro timer border color
             .highlight_style(Style::default().fg(Color::Rgb(240,94,90))) // Pomodoro color
             .select(selected_tab);
 
@@ -150,6 +161,7 @@ impl Widget for &App {
             .constraints([
                 Constraint::Length(3), // Tab titles
                 Constraint::Min(1),   // Main content area
+                Constraint::Max(1), // footer
             ])
             .split(area);
 
@@ -164,106 +176,28 @@ impl Widget for &App {
         tabs_widget.render(tab_layout[0], buf);
 
         match selected_tab {
-            0 => self.render_pomodoro(layout[1], buf),
-            1 => self.render_settings(layout[1], buf),
+            0 => self.pomodoro.render(layout[1], buf),
+            1 => self.settings.render(layout[1], buf),
             2 => self.render_stats(layout[1], buf),
             _ => {}
         }
+    self.render_footer(layout[2], buf);
     }
 }
 impl App {
-    fn render_pomodoro(&self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
-        let time = self.timer.get_timeleft();
-        let total_time = self.timer.get_total_time(); // Placeholder for total time
-        let work_period_time = self.timer.get_total_time()/self.timer.get_total_iterations() as i64;
-        let elapsed_time = work_period_time * (self.timer.get_iteration() as i64 -1) + (work_period_time - time);
-        let now_text = format!("Now: {}", self.timer.get_work_state());
-        let progress = (elapsed_time) as f64 / total_time as f64;
-        let iterations_text = format!("{}/{} iterations", self.timer.get_iteration(), self.timer.get_total_iterations());
+    fn render_footer(&self, area: Rect, buf: &mut Buffer) {
+        let footer_text = match self.selected_tab {
+            0 => "Space: Start/Stop | Tab: Next Tab | Q: Quit",
+            1 => "↑↓: Select | ←→: Adjust Value | Space: Confirm | Tab: Next Tab | Q: Quit",
+            _ => "Tab: Next Tab | Q: Quit",
+        };
 
-        let outer_block = Block::default()
-            .title(" Pomodoro Timer ")
-            .borders(Borders::ALL)
-            .border_type(BorderType::Double)
-            .style(Style::default().fg(Color::Rgb(215,153,33))); // Gruvbox dark border
-
-        let timer_text = Paragraph::new(format!("Time Left: {time} seconds"))
+        let footer = Paragraph::new(footer_text)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD))
-            .block(Block::default().borders(Borders::NONE));
+            .style(Style::default().fg(Color::Gray).add_modifier(Modifier::ITALIC));
 
-        let now_paragraph = Paragraph::new(now_text)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::LightBlue).add_modifier(Modifier::DIM));
-
-        let count_paragraph = Paragraph::new(iterations_text)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Rgb(69,133,136)).add_modifier(Modifier::ITALIC));
-
-        let gauge = Gauge::default()
-            .block(Block::default().borders(Borders::ALL).border_style(Color::Rgb(99, 150, 99)).border_type(BorderType::Thick))
-            .gauge_style(Style::default().fg(Color::Rgb(85, 158, 85)))
-            .ratio(progress);
-
-        let romodoro_ascii = r"
-          _____                   _______                   _____                   _______                   _____                   _______                   _____                   _______         
-         /\    \                 /::\    \                 /\    \                 /::\    \                 /\    \                 /::\    \                 /\    \                 /::\    \        
-        /::\    \               /::::\    \               /::\____\               /::::\    \               /::\    \               /::::\    \               /::\    \               /::::\    \       
-       /::::\    \             /::::::\    \             /::::|   |              /::::::\    \             /::::\    \             /::::::\    \             /::::\    \             /::::::\    \      
-      /::::::\    \           /::::::::\    \           /:::::|   |             /::::::::\    \           /::::::\    \           /::::::::\    \           /::::::\    \           /::::::::\    \     
-     /:::/\:::\    \         /:::/~~\:::\    \         /::::::|   |            /:::/~~\:::\    \         /:::/\:::\    \         /:::/~~\:::\    \         /:::/\:::\    \         /:::/~~\:::\    \    
-    /:::/__\:::\    \       /:::/    \:::\    \       /:::/|::|   |           /:::/    \:::\    \       /:::/  \:::\    \       /:::/    \:::\    \       /:::/__\:::\    \       /:::/    \:::\    \   
-   /::::\   \:::\    \     /:::/    / \:::\    \     /:::/ |::|   |          /:::/    / \:::\    \     /:::/    \:::\    \     /:::/    / \:::\    \     /::::\   \:::\    \     /:::/    / \:::\    \  
-  /::::::\   \:::\    \   /:::/____/   \:::\____\   /:::/  |::|___|______   /:::/____/   \:::\____\   /:::/    / \:::\    \   /:::/____/   \:::\____\   /::::::\   \:::\    \   /:::/____/   \:::\____\ 
- /:::/\:::\   \:::\____\ |:::|    |     |:::|    | /:::/   |::::::::\    \ |:::|    |     |:::|    | /:::/    /   \:::\ ___\ |:::|    |     |:::|    | /:::/\:::\   \:::\____\ |:::|    |     |:::|    |
-/:::/  \:::\   \:::|    ||:::|____|     |:::|    |/:::/    |:::::::::\____\|:::|____|     |:::|    |/:::/____/     \:::|    ||:::|____|     |:::|    |/:::/  \:::\   \:::|    ||:::|____|     |:::|    |
-\::/   |::::\  /:::|____| \:::\    \   /:::/    / \::/    / ~~~~~/:::/    / \:::\    \   /:::/    / \:::\    \     /:::|____| \:::\    \   /:::/    / \::/   |::::\  /:::|____| \:::\    \   /:::/    / 
- \/____|:::::\/:::/    /   \:::\    \ /:::/    /   \/____/      /:::/    /   \:::\    \ /:::/    /   \:::\    \   /:::/    /   \:::\    \ /:::/    /   \/____|:::::\/:::/    /   \:::\    \ /:::/    /  
-       |:::::::::/    /     \:::\    /:::/    /                /:::/    /     \:::\    /:::/    /     \:::\    \ /:::/    /     \:::\    /:::/    /          |:::::::::/    /     \:::\    /:::/    /   
-       |::|\::::/    /       \:::\__/:::/    /                /:::/    /       \:::\__/:::/    /       \:::\    /:::/    /       \:::\__/:::/    /           |::|\::::/    /       \:::\__/:::/    /    
-       |::| \::/____/         \::::::::/    /                /:::/    /         \::::::::/    /         \:::\  /:::/    /         \::::::::/    /            |::| \::/____/         \::::::::/    /     
-       |::|  ~|                \::::::/    /                /:::/    /           \::::::/    /           \:::\/:::/    /           \::::::/    /             |::|  ~|                \::::::/    /      
-       |::|   |                 \::::/    /                /:::/    /             \::::/    /             \::::::/    /             \::::/    /              |::|   |                 \::::/    /       
-       \::|   |                  \::/____/                /:::/    /               \::/____/               \::::/    /               \::/____/               \::|   |                  \::/____/        
-        \:|   |                   ~~                      \::/    /                 ~~                      \::/____/                 ~~                      \:|   |                   ~~              
-         \|___|                                            \/____/                                           ~~                                                \|___|                                   
-        ";
-        
-        let romodoro = Paragraph::new(romodoro_ascii)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Rgb(240,94,90)));
-        
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(2), // Smaller "Now: {}"
-                Constraint::Length(2),
-                Constraint::Length(4), // Bigger timer text
-                Constraint::Length(2), // Smaller "{}/{} iterations"
-                Constraint::Length(3), // Progress bar
-                Constraint::Max(5),
-                Constraint::Min(10), // Bigger ASCII tomato art
-            ])
-            .margin(5) // Adds even more padding on the sides for a centered look
-            .split(area);
-
-        let inner_area = outer_block.inner(area);
-        buf.set_style(area, Style::default().fg(Color::DarkGray));
-        outer_block.render(area, buf);
-
-        now_paragraph.render(layout[0], buf);
-        timer_text.render(layout[2], buf);
-        count_paragraph.render(layout[3], buf);
-        gauge.render(layout[4], buf);
-        romodoro.render(layout[6], buf);
+        footer.render(area, buf);
     }
-        fn render_settings(&self, area: Rect, buf: &mut Buffer) {
-        let text = Paragraph::new("Settings Page (Placeholder)")
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::LightCyan));
-        text.render(area, buf);
-    }
-
     fn render_stats(&self, area: Rect, buf: &mut Buffer) {
         let text = Paragraph::new("Stats Page (Placeholder)")
             .alignment(Alignment::Center)
@@ -271,6 +205,121 @@ impl App {
         text.render(area, buf);
     }
 }
+#[derive(Debug, Clone)]
+pub struct SettingsTab {
+    selected_setting: usize,
+    work_time : i64,
+    break_time : i64
+}
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Settings {
+    WorkTime(Option<i64>),
+    BreakTime(Option<i64>),
+    Iterations(Option<u8>),
+}
+impl From<PomodoroState> for Settings {
+    fn from(value: PomodoroState) -> Self {
+        match value {
+            PomodoroState::Work(time) => Settings::WorkTime(Some(time)),
+            PomodoroState::Break(time) => Settings::BreakTime(Some(time)),
+        }
+    }
+}
+impl From<u8> for Settings {
+    fn from(value: u8) -> Self {
+        Settings::Iterations(Some(value))
+    }
+}
+        
+        
+impl Widget for &SettingsTab {
+        fn render(self, area: Rect, buf: &mut Buffer) {
+            let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Min(1),
+            ])
+            .split(area);
+
+        let work_time_text = Paragraph::new("Work Time (hours)")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White));
+
+        let break_time_text = Paragraph::new("Break Time (minutes)")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White));
+
+            let work_time_style = if self.selected_setting == 0 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::LightGreen)
+            };
+
+            let break_time_style = if self.selected_setting == 1 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::LightGreen)
+            };
+
+            let work_time_value = Paragraph::new(format!("{:.1}", self.work_time))
+                .alignment(Alignment::Center)
+                .style(work_time_style);
+
+            let break_time_value = Paragraph::new(format!("{}", self.break_time))
+                .alignment(Alignment::Center)
+                .style(break_time_style);
+
+            work_time_text.render(layout[0], buf);
+            work_time_value.render(layout[1], buf);
+            break_time_text.render(layout[2], buf);
+            break_time_value.render(layout[3], buf);
+    }
+}
+impl SettingsTab {
+    fn get_setting(&self, setting:Settings) -> Settings {
+        match setting {
+            Settings::BreakTime(_) => {
+                Settings::BreakTime(Some(self.break_time))
+            }
+            Settings::WorkTime(_) => {
+                Settings::WorkTime(Some(self.work_time))
+            }
+            Settings::Iterations(_) => {
+                Settings::Iterations(Some(4))
+            }
+
+        }
+    }
+
+    fn select_down(&mut self) {
+        if self.selected_setting == 1 {
+            self.selected_setting = 0;
+        } else { self.selected_setting += 1}
+    }
+    fn select_up(&mut self) {
+        if self.selected_setting == 0 {
+            self.selected_setting = 1;
+        } else { self.selected_setting -= 1}
+    }
+    fn decrement(&mut self) {
+        match self.selected_setting {
+            0 if self.work_time - WORK_TIME_INCR != 0 => {self.work_time -= WORK_TIME_INCR},
+            1 if self.break_time - BREAK_TIME_INCR != 0  => {self.break_time -= BREAK_TIME_INCR},
+            _ => {},
+        }
+    }
+    fn increment(&mut self) {
+        match self.selected_setting {
+            0 => {self.work_time += WORK_TIME_INCR},
+            1 => {self.break_time += BREAK_TIME_INCR},
+            _ => {},
+        }
+    }
+}
+
 
 #[cfg(test)] 
 mod test {

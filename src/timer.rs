@@ -1,11 +1,29 @@
 use std::{fmt::{write, Display}, io::Write, ops::Mul, sync::Arc, time::Duration};
-use tokio::{sync, io::AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
+use crate::app::Settings;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum PomodoroState {
     Work(i64),
     Break(i64)
+}
+impl Into<Settings> for &PomodoroState {
+    fn into(self) -> Settings {
+        match self {
+            PomodoroState::Break(time) => { Settings::BreakTime(Some(*time)) },
+            PomodoroState::Work(time) => Settings::BreakTime(Some(*time)) }
+
+    }
+}
+impl From<Settings> for PomodoroState {
+    fn from(value: Settings) -> Self {
+        match value {
+            Settings::WorkTime(Some(time)) => PomodoroState::Work(time),
+            Settings::BreakTime(Some(time)) => PomodoroState::Break(time),
+            _ => PomodoroState::Break(-1),
+        }
+
+    }
 }
 
 impl Display for PomodoroState {
@@ -35,6 +53,7 @@ pub struct Timer {
 pub enum TimerCommand {
     Start,
     ChangeState,
+    Customize(crate::app::Settings),
     Stop,
 }
 impl Timer {
@@ -48,6 +67,11 @@ impl Timer {
                 PomodoroState::Work(dur) | PomodoroState::Break(dur) => {return *dur}
             };
     }
+    pub fn set_total_time(&mut self) {
+        let duration = Timer::get_duration(&self.current_state);
+        self.total_time = duration * self.total_iterations as i64;
+    }
+
      pub async fn run(&mut self, sender: tokio::sync::mpsc::Sender<i64>,mut command_rx: tokio::sync::mpsc::Receiver<TimerCommand>, close: CancellationToken) {
          loop {
              tokio::select! {
@@ -56,6 +80,7 @@ impl Timer {
                      TimerCommand::Start => {self.running = true},
                      TimerCommand::Stop => {self.running = false},
                      TimerCommand::ChangeState => {self.running = true},
+                     TimerCommand::Customize(setting) => self.set_setting(setting),
                  };
              }
              _ = tokio::time::sleep(Duration::from_secs(1)), if self.running && self.time_left > 0 => {
@@ -76,8 +101,30 @@ impl Timer {
         }
 
     }
+    pub fn set_setting(&mut self, setting: Settings) {
+        if self.running {return};
+        self.restart();
+        match setting {
+            Settings::Iterations(iterations) => self.total_iterations = iterations.unwrap(),
+            Settings::WorkTime(time) =>self.current_state = PomodoroState::from(setting),
+            Settings::BreakTime(_) => self.next_state = PomodoroState::from(setting),
+        }
+        self.restart();
+    }
+
+
     pub fn get_timeleft(&self) -> i64 {
         self.time_left
+    }
+    pub fn restart(&mut self) {
+        if let PomodoroState::Break(_) = self.current_state {
+            self.next_state();
+        }
+        self.iteration = 1;
+        self.time_left = Timer::get_duration(&self.current_state);
+        self.total_elapsed = 0;
+        self.running = false;
+        self.set_total_time();
     }
     pub fn get_running(&self) -> bool {
          self.running
@@ -108,7 +155,6 @@ impl Timer {
 #[cfg(test)]
 mod tests {
 
-    use tokio::sync::mpsc;
 
     use super::*;
     #[test]
