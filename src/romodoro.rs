@@ -56,7 +56,9 @@ impl Pomodoro {
             tokio::select! {
                 time = time_rx.recv() => {
                     match time {
-                        Some(time) => {let _ = tx.send(Event::TimerTick(time)).await;},
+                        Some(time) => {
+                            let _ = tx.send(Event::TimerTick(time)).await;
+                        },
                         None => {break},
                     }
                 }
@@ -69,15 +71,42 @@ impl Pomodoro {
     }
     pub fn set_time_left(&mut self, time: i64) {
         self.timer.set_time_left(time);
+        if let PomodoroState::Work(_) = self.timer.get_current_state() {
+            self.timer.set_elapsed_time((self.timer.get_iteration()-1) as i64 * Timer::get_duration(&self.timer.get_work_state()) + Timer::get_duration(&self.get_work_state())-time)
+        }
+
+    }
+    pub async fn handle_timer_responses(&mut self, time: i64) {
+        if time == -1 && self.timer.get_iteration() < self.timer.get_total_iterations() { 
+            self.send_commands(TimerCommand::Stop).await;
+            self.send_commands(TimerCommand::NextIteration).await;
+            self.send_commands(TimerCommand::Start).await;
+            self.timer.set_running(false);
+            self.timer.next_iteration();
+            self.timer.set_running(true);
+        }
+        else if time == -1 && self.timer.get_iteration() > self.timer.get_total_iterations() {
+            self.timer.set_running(false);
+            self.send_commands(TimerCommand::Stop).await;
+        }
+        else if time == -1 && self.timer.get_iteration() == self.timer.get_total_iterations() {
+            if let PomodoroState::Break(_) = self.timer.get_current_state() {
+                self.timer.set_running(false);
+                self.send_commands(TimerCommand::Stop).await;
+            }
+        }
+                
+        else {
+            self.set_time_left(time);
+        }
     }
 }
 impl Widget for &Pomodoro {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
         let time = self.timer.get_timeleft();
-        let total_time = self.timer.get_total_time(); // Placeholder for total time
-        let work_period_time = self.timer.get_total_time()/self.timer.get_total_iterations() as i64;
-        let elapsed_time = work_period_time * (self.timer.get_iteration() as i64 -1) + (work_period_time - time);
-        let now_text = format!("Now: {}", self.timer.get_work_state());
+        let total_time = self.timer.get_total_time();
+        let elapsed_time = self.timer.get_total_elapsed_time();
+        let now_text = format!("Now: {}", self.timer.get_current_state());
         let progress = (elapsed_time) as f64 / total_time as f64;
         let iterations_text = format!("{}/{} iterations", self.timer.get_iteration(), self.timer.get_total_iterations());
 

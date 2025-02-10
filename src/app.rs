@@ -3,12 +3,12 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use std::io;
-use num_traits::PrimInt;
 use ratatui::{self, buffer::{self, Buffer}, layout::{Alignment, Constraint, Direction, Layout, Margin, Rect}, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols::{self, border}, text::{Line, Span, Text}, widgets::{Block, BorderType, Borders, Gauge, Padding, Paragraph, Tabs, Widget}, DefaultTerminal, Frame};
 use crate::timer::*;
 use crate::romodoro::Pomodoro;
 
 const DEFAULT_WORK: i64 = 1800;
+const DEFAULT_ITERATIONS: u8 = 4;
 const DEFAULT_BREAK: i64 = 300;
 const WORK_TIME_INCR: i64 = 900;
 const BREAK_TIME_INCR: i64 = 60;
@@ -26,7 +26,7 @@ pub enum Event {
 }
 impl App {
     pub fn new(pomodoro: Pomodoro)-> Self {
-        App{pomodoro, exit:false, selected_tab: 0, settings: SettingsTab{selected_setting: 0, work_time:DEFAULT_WORK, break_time:DEFAULT_BREAK}}
+        App{pomodoro, exit:false, selected_tab: 0, settings: SettingsTab{selected_setting: 0, work_time:DEFAULT_WORK, break_time:DEFAULT_BREAK, iterations:DEFAULT_ITERATIONS}}
     }
     pub async fn run(
         &mut self,
@@ -51,7 +51,7 @@ impl App {
             if let Some(event) = rx.recv().await {
                 match event {
                     Event::KeyPress(key) => {self.handle_key_event(key).await;},
-                    Event::TimerTick(time) => {self.pomodoro.set_time_left(time);}
+                    Event::TimerTick(time) => {self.pomodoro.handle_timer_responses(time).await;}
                 }
             }
             terminal.draw(|frame| self.draw(frame))?;
@@ -209,7 +209,8 @@ impl App {
 pub struct SettingsTab {
     selected_setting: usize,
     work_time : i64,
-    break_time : i64
+    break_time : i64,
+    iterations : u8,
 }
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum Settings {
@@ -240,7 +241,9 @@ impl Widget for &SettingsTab {
                 Constraint::Length(3),
                 Constraint::Length(3),
                 Constraint::Length(3),
-                Constraint::Min(1),
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Length(3),
             ])
             .split(area);
 
@@ -272,10 +275,25 @@ impl Widget for &SettingsTab {
                 .alignment(Alignment::Center)
                 .style(break_time_style);
 
+            let iterations_style = if self.selected_setting == 2 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::LightGreen)
+            };
+            let iterations_text = Paragraph::new("Iterations")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::White));
+
+            let iterations_value = Paragraph::new(format!("{:.1}", self.iterations))
+                .alignment(Alignment::Center)
+                .style(iterations_style);
+
             work_time_text.render(layout[0], buf);
             work_time_value.render(layout[1], buf);
             break_time_text.render(layout[2], buf);
             break_time_value.render(layout[3], buf);
+            iterations_text.render(layout[4], buf);
+            iterations_value.render(layout[5], buf);
     }
 }
 impl SettingsTab {
@@ -288,26 +306,27 @@ impl SettingsTab {
                 Settings::WorkTime(Some(self.work_time))
             }
             Settings::Iterations(_) => {
-                Settings::Iterations(Some(4))
+                Settings::Iterations(Some(self.iterations))
             }
 
         }
     }
 
     fn select_down(&mut self) {
-        if self.selected_setting == 1 {
+        if self.selected_setting == 2 {
             self.selected_setting = 0;
         } else { self.selected_setting += 1}
     }
     fn select_up(&mut self) {
         if self.selected_setting == 0 {
-            self.selected_setting = 1;
+            self.selected_setting = 2;
         } else { self.selected_setting -= 1}
     }
     fn decrement(&mut self) {
         match self.selected_setting {
-            0 if self.work_time - WORK_TIME_INCR != 0 => {self.work_time -= WORK_TIME_INCR},
+            0 if self.work_time - WORK_TIME_INCR != 0 => {self.work_time -= WORK_TIME_INCR-1},
             1 if self.break_time - BREAK_TIME_INCR != 0  => {self.break_time -= BREAK_TIME_INCR},
+            2 => {self.iterations -= 1},
             _ => {},
         }
     }
@@ -315,7 +334,8 @@ impl SettingsTab {
         match self.selected_setting {
             0 => {self.work_time += WORK_TIME_INCR},
             1 => {self.break_time += BREAK_TIME_INCR},
-            _ => {},
+            2 => {self.iterations += 1},
+            _ => {}
         }
     }
 }
