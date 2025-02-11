@@ -1,51 +1,20 @@
-use std::io;
 use crossterm::terminal;
 use pomodoro::app::*;
-use pomodoro::timer::*;
 use pomodoro::romodoro::*;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()>{
-    let mut input = String::new();
-    println!("How long to study?");
-    let _ = io::stdin().read_line(&mut input);
-    let work_state = PomodoroState::Work(input.trim().parse::<i64>().unwrap());
-    input = "".to_string();
-    println!("How long a break?");
-    let _ = io::stdin().read_line(&mut input);
-    println!("{input}");
-    let break_state = PomodoroState::Break(input.trim().parse::<i64>().unwrap());
     let (tx, rx) = tokio::sync::mpsc::channel(4);
     let (tx_events,  rx_events) = tokio::sync::mpsc::channel(32);
     let (tx_commands, rx_commands) = tokio::sync::mpsc::channel(4);
-    let pomodoro = Pomodoro::new(work_state,break_state,4, tx, rx_commands, tx_commands);
+    let pomodoro = Pomodoro::new(tx, rx_commands, tx_commands);
+
     terminal::enable_raw_mode()?;
     let mut terminal = ratatui::init();
     let mut app = App::new(pomodoro);
-    let app_result = app.run(&mut terminal,rx_events,tx_events,rx).await;
+    let app_result = app.run(&mut terminal,rx_events,tx_events,rx).await; // mainloop
     terminal::disable_raw_mode()?;
+
     ratatui::restore();
     app_result
-//    while iterations <= 4 {
-//        let mut duration: u8 = match current_state {
-//            PomodoroState::Work(_) => {
-//                current_state = &break_state;
-//                println!("Work time!");
-//                iterations += 1;
-//                work_state.get_duration()
-//            },
-//            PomodoroState::Break(_) => {
-//                current_state = &work_state;
-//                println!("Break time!");
-//                break_state.get_duration()
-//            },
-//        };
-//        while duration > 0 {
-//            println!("{duration} seconds left...");
-//            duration -= 1;
-//            sleep(time::Duration::from_secs(1));
-//        }
-//    }
-//    println!("You have worked for {} minutes.", iterations*work_state.get_duration())
 }
-
