@@ -1,6 +1,7 @@
 use crossterm::terminal;
 use pomodoro::app::*;
 use pomodoro::romodoro::*;
+// ALPHA 0.1
 
 #[tokio::main]
 async fn main() -> std::io::Result<()>{
