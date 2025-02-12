@@ -1,41 +1,30 @@
 use tokio_util::sync::CancellationToken;
 
-use crate::{app::Event, timer::*};
+use crate::{app::Event, settings::Settings, timer::*};
 
 #[derive(Debug)]
 pub struct Pomodoro {
     pub timer : Timer,
     time_sender: tokio::sync::mpsc::Sender<i64>,
-    command_tx: tokio::sync::mpsc::Sender<TimerCommand>,
     command_rx: Option<tokio::sync::mpsc::Receiver<TimerCommand>>,
 }
 impl Pomodoro {
     pub fn new(time_sender: tokio::sync::mpsc::Sender<i64>, command_rx: tokio::sync::mpsc::Receiver<TimerCommand>,command_tx: tokio::sync::mpsc::Sender<TimerCommand>) -> Self {
-        let timer = Timer::default();
-        Pomodoro {timer, command_rx: Some(command_rx), command_tx, time_sender}
+        let mut timer = Timer::default();
+        timer.countdown_command_tx = Some(command_tx);
+        Pomodoro {timer, command_rx: Some(command_rx), time_sender}
     }
-    pub fn create_timer(&mut self, cancel_token: CancellationToken) { 
+    pub async fn create_countdown(&mut self, cancel_token: CancellationToken) { 
         let sender = self.time_sender.clone();
-        let mut timer = self.timer.clone();
         let command_rx = self.command_rx.take().expect("Timer initialized");
-
-        tokio::task::spawn({
-            async move {
-                timer.run(sender, command_rx, cancel_token).await;
-            }
-        });
-    }
-    pub async fn send_commands(&self, command: TimerCommand) {
-        let _ = self.command_tx.send(command).await;
+        self.timer.run(sender, command_rx, cancel_token).await;
     }
     pub async fn cycle(&mut self) {
         if self.timer.get_running() {
-            self.timer.set_running(false);
-            self.send_commands(TimerCommand::Stop).await;
+            self.timer.stop().await;
         }
         else {
-            self.timer.set_running(true);
-            self.send_commands(TimerCommand::Start).await;
+            self.timer.start().await;
         }
     }
     pub fn get_work_state(&self) -> PomodoroState {
@@ -69,23 +58,19 @@ impl Pomodoro {
         }
 
     }
+    pub async fn set_setting(&mut self, setting: Settings) {
+        self.timer.set_setting(setting).await
+    }
     pub async fn handle_timer_responses(&mut self, time: i64) {
         if time == -1 && self.timer.get_iteration() < self.timer.get_total_iterations() { 
-            self.send_commands(TimerCommand::Stop).await;
-            self.send_commands(TimerCommand::NextIteration).await;
-            self.send_commands(TimerCommand::Start).await;
-            self.timer.set_running(false);
-            self.timer.next_iteration();
-            self.timer.set_running(true);
+            self.timer.next_iteration().await;
         }
         else if time == -1 && self.timer.get_iteration() > self.timer.get_total_iterations() {
-            self.timer.set_running(false);
-            self.send_commands(TimerCommand::Stop).await;
+            self.timer.stop().await;
         }
         else if time == -1 && self.timer.get_iteration() == self.timer.get_total_iterations() {
             if let PomodoroState::Break(_) = self.timer.get_current_state() {
-                self.timer.set_running(false);
-                self.send_commands(TimerCommand::Stop).await;
+            self.timer.stop().await;
             }
         }
                 

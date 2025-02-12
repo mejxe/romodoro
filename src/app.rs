@@ -5,7 +5,6 @@ use std::io;
 use crate::timer::*;
 use crate::romodoro::Pomodoro;
 use crate::settings::*;
-use crate::{DEFAULT_WORK, DEFAULT_BREAK, DEFAULT_ITERATIONS};
 
 
 #[derive(Debug)]
@@ -40,7 +39,7 @@ impl App {
         let timer_cancel = cancelation_token.clone();
         let input_task = tokio::spawn(async move {App::handle_inputs(tx_inputs, input_cancel).await;});
         let timer_task = tokio::spawn(async move {Pomodoro::handle_timer(&mut time_rx, tx_timer, timer_comm_cancel).await;});
-        self.pomodoro.create_timer(timer_cancel);
+        self.pomodoro.create_countdown(timer_cancel).await;
         terminal.draw(|frame| self.draw(frame))?;
         while !self.exit {
             if let Some(event) = rx.recv().await {
@@ -106,16 +105,13 @@ impl App {
         let current_work_time: Settings = self.pomodoro.timer.get_work_state().into();
         let current_iterations: Settings = Settings::Iterations(Some(self.pomodoro.timer.get_total_iterations()));
         if current_break_time != break_time {
-            self.pomodoro.send_commands(TimerCommand::Customize(break_time)).await;
-            self.pomodoro.timer.set_setting(break_time);
+            self.pomodoro.set_setting(break_time).await;
         }
         if current_work_time != work_time {
-            self.pomodoro.send_commands(TimerCommand::Customize(work_time)).await;
-            self.pomodoro.timer.set_setting(work_time);
+            self.pomodoro.set_setting(work_time).await;
         }
         if current_iterations != iterations {
-            self.pomodoro.send_commands(TimerCommand::Customize(iterations)).await;
-            self.pomodoro.timer.set_setting(iterations);
+            self.pomodoro.set_setting(iterations).await;
         }
     }
     pub fn get_selected_tab(&self) -> usize {
