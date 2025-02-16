@@ -5,7 +5,10 @@ edition = "2021"
 
 [dependencies]
 crossterm = "0.28.1"
+directories = "6.0.0"
 ratatui = "0.29.0"
+serde = {version="1.0.217", features = ["derive"]}
 strum = "0.26.3"
 tokio = {version="1", features = ["full"]}
 tokio-util = "0.7.13"
+toml = "0.8.20"

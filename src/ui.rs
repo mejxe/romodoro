@@ -14,8 +14,8 @@ impl Widget for &App {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Double)
                 .title(" Menu ")
-                .border_style(Style::default().fg(Color::Rgb(215,153,33)))) // Match Pomodoro timer border color
-            .highlight_style(Style::default().fg(Color::Rgb(240,94,90))) // Pomodoro color
+                .border_style(Style::default().fg(Color::Rgb(215,153,33))))
+            .highlight_style(Style::default().fg(Color::Rgb(240,94,90)))
             .select(selected_tab);
 
         let layout = Layout::default()
@@ -30,7 +30,7 @@ impl Widget for &App {
         let tab_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Max(38), // Limit width of tabs
+                Constraint::Max(38),
                 Constraint::Min(1),
             ])
             .split(layout[0]);
@@ -39,7 +39,7 @@ impl Widget for &App {
 
         match selected_tab {
             0 => self.get_pomodoro_ref().render(layout[1], buf),
-            1 => self.get_settings_ref().render(layout[1], buf),
+            1 => self.get_settings_ref().borrow().render(layout[1], buf),
             2 => self.render_stats(layout[1], buf),
             _ => {}
         }
@@ -50,7 +50,7 @@ impl App {
     pub fn render_footer(&self, area: Rect, buf: &mut Buffer) {
         let footer_text = match self.get_selected_tab() {
             0 => "Space: Start/Stop | Tab: Next Tab | Q: Quit",
-            1 => "↑↓: Select | ←→: Adjust Value | Space: Confirm | Tab: Next Tab | Q: Quit",
+            1 => "↑↓: Select | ←→: Adjust Value | Space: Confirm | Tab: Next Tab | r: Restore Defaults | Q: Quit |" ,
             _ => "Tab: Next Tab | Q: Quit",
         };
 
@@ -61,7 +61,7 @@ impl App {
         footer.render(area, buf);
     }
     fn render_stats(&self, area: Rect, buf: &mut Buffer) {
-        let text = Paragraph::new("Stats Page (Placeholder)")
+        let text = Paragraph::new(format!("Stats Page ({})",self.get_settings_ref().borrow().ui_settings.pause_after_state_change))
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::LightGreen));
         text.render(area, buf);
@@ -87,10 +87,25 @@ impl Widget for &Pomodoro {
             .border_type(BorderType::Double)
             .style(Style::default().fg(Color::Rgb(215,153,33))); // Gruvbox dark border
 
-        let timer_text = Paragraph::new(format_ascii_time(&format!("{:02}:{:02}:{:02}", time/3600,(time%3600)/60, time%60)))
+        let (timer_style, text_of_timer) = match self.get_setting_ref().borrow().ui_settings.hide_work_countdown {
+            true if self.timer.get_running() => (
+                Style::default().fg(Color::LightRed),
+                format_ascii_time("00:00:00")
+            ),
+            true => (
+                Style::default().fg(Color::LightRed),
+                format_ascii_time(&format!("{:02}:{:02}:{:02}", time/3600,(time%3600)/60, time%60))
+            ),
+            false => (
+                Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD), 
+                format_ascii_time(&format!("{:02}:{:02}:{:02}", time/3600,(time%3600)/60, time%60))
+            ),
+        };
+        let timer_text = Paragraph::new(text_of_timer)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD))
+            .style(timer_style)
             .block(Block::default().borders(Borders::NONE));
+        
 
         let now_paragraph_style = match self.timer.get_current_state() {
             crate::timer::PomodoroState::Work(_) => Style::default().fg(Color::LightBlue).add_modifier(Modifier::DIM),
@@ -140,15 +155,15 @@ impl Widget for &Pomodoro {
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(2), // Smaller "Now: {}"
+                Constraint::Length(2), //  "Now: {}"
                 Constraint::Length(2),
-                Constraint::Max(9), // Bigger timer text
-                Constraint::Length(2), // Smaller "{}/{} iterations"
+                Constraint::Max(9), //  timer text
+                Constraint::Length(2), //  "{}/{} iterations"
                 Constraint::Length(3), // Progress bar
                 Constraint::Max(5),
-                Constraint::Min(10), // Bigger ASCII tomato art
+                Constraint::Min(10), //  ASCII art
             ])
-            .margin(2) // Adds even more padding on the sides for a centered look
+            .margin(2)
             .split(area);
 
         let gauge_layout = Layout::default().direction(Direction::Horizontal)
@@ -166,51 +181,85 @@ impl Widget for &Pomodoro {
         gauge.render(gauge_layout[1], buf);
         romodoro.render(layout[6], buf);
     }
-    }
-    
+}
 impl Widget for &SettingsTab {
-        fn render(self, area: Rect, buf: &mut Buffer) {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let outer_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(10), // Empty space (Top)
+                Constraint::Percentage(40), // Pomodoro Settings
+                Constraint::Percentage(40), // Other Settings
+                Constraint::Percentage(10), // Empty space (Top)
+            ])
+            .split(area);
 
-            let outer_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(35), // Empty space (Top)
-            Constraint::Percentage(30),      // Settings box height
-            Constraint::Percentage(35), // Empty space (Bottom)
-        ])
-        .split(area);
+        let centered_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(33), // Empty space (Left)
+                Constraint::Percentage(33), // Empty space (Left)
+                Constraint::Percentage(33), // Empty space (Left)
+            ])
+            .split(outer_layout[1]);
 
-    let centered_layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(37), // Empty space (Left)
-            Constraint::Percentage(35), // Settings box width
-            Constraint::Percentage(37), // Empty space (Right)
-        ])
-        .split(outer_layout[1]); // Centered in vertical space
+        let pomodoro_settings_area = centered_layout[1];
+        
+        let centered_layout_other = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(33), // Empty space (Left)
+                Constraint::Percentage(33), // Empty space (Left)
+                Constraint::Percentage(33), // Empty space (Left)
+            ])
+            .split(outer_layout[2]);
 
-    let settings_area = centered_layout[1];
+        let other_settings_area = centered_layout_other[1];
 
-    let settings_box = Block::default()
-        .title(" Settings ")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Double)
-        .border_style(Style::default().fg(Color::Rgb(99, 150, 99)));
+        let pomodoro_box = Block::default()
+            .title(" Pomodoro Settings ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .border_style(Style::default().fg(Color::Rgb(99, 150, 99)));
 
-    let inner_area = settings_box.inner(settings_area);
-    settings_box.render(settings_area, buf);
-            let settings_layout = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(20),
-                    Constraint::Max(3),
-                    Constraint::Max(3),
-                    Constraint::Max(3),
-                    Constraint::Max(3),
-                    Constraint::Max(3),
-                    Constraint::Percentage(20),
-                ])
-                .split(inner_area);
+        let other_settings_box = Block::default()
+            .title(" Other Settings ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .border_style(Style::default().fg(Color::Rgb(150, 99, 99)));
+
+        let pomodoro_inner_area = pomodoro_box.inner(pomodoro_settings_area);
+        let other_inner_area = other_settings_box.inner(other_settings_area);
+
+        pomodoro_box.render(pomodoro_settings_area, buf);
+        other_settings_box.render(other_settings_area, buf);
+
+        let pomodoro_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(10),
+                Constraint::Max(3),
+                Constraint::Max(3),
+                Constraint::Max(3),
+                Constraint::Max(3),
+                Constraint::Max(3),
+                Constraint::Max(3),
+                Constraint::Percentage(10),
+            ])
+            .split(pomodoro_inner_area);
+
+        let other_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(10),
+                Constraint::Max(3),
+                Constraint::Max(3),
+                Constraint::Max(3),
+                Constraint::Max(3),
+                Constraint::Percentage(10),
+            ])
+            .split(other_inner_area);
+
         let work_time_text = Paragraph::new("Work Time")
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::White)).add_modifier(Modifier::BOLD);
@@ -219,49 +268,66 @@ impl Widget for &SettingsTab {
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::White)).add_modifier(Modifier::BOLD);
 
-            let work_time_style = if self.selected_setting == 0 {
+        let work_time_value = Paragraph::new(format!("{} min", (self.timer_settings.work_time/60)))
+            .alignment(Alignment::Center)
+            .style(self.highlight_selected(0));
+
+        let break_time_value = Paragraph::new(format!("{} min", self.timer_settings.break_time/60))
+            .alignment(Alignment::Center)
+            .style(self.highlight_selected(1));
+
+        let iterations_text = Paragraph::new("Iterations")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White)).add_modifier(Modifier::BOLD);
+
+        let iterations_value = Paragraph::new(format!("{} iters", self.timer_settings.iterations))
+            .alignment(Alignment::Center)
+            .style(self.highlight_selected(2));
+
+        work_time_text.render(pomodoro_layout[1], buf);
+        work_time_value.render(pomodoro_layout[2], buf);
+        break_time_text.render(pomodoro_layout[3], buf);
+        break_time_value.render(pomodoro_layout[4], buf);
+        iterations_text.render(pomodoro_layout[5], buf);
+        iterations_value.render(pomodoro_layout[6], buf);
+
+        let pause_change_state_text = Paragraph::new("Pause before starting new iteration")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White)).add_modifier(Modifier::BOLD);
+
+        let pause_change_state_val = if self.ui_settings.pause_after_state_change { "yes" } else { "no" };
+        let pause_change_state_value = Paragraph::new(format!("{}", pause_change_state_val))
+            .alignment(Alignment::Center)
+            .style(self.highlight_selected(3));
+
+        let hide_clock_text = Paragraph::new("Hide clock on work time")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White)).add_modifier(Modifier::BOLD);
+
+        let hide_clock_val = if self.ui_settings.hide_work_countdown { "yes" } else { "no" };
+        let hide_clock_value = Paragraph::new(format!("{}", hide_clock_val))
+            .alignment(Alignment::Center)
+            .style(self.highlight_selected(4));
+
+        pause_change_state_text.render(other_layout[1], buf);
+        pause_change_state_value.render(other_layout[2], buf);
+        hide_clock_text.render(other_layout[3], buf);
+        hide_clock_value.render(other_layout[4], buf);
+    }
+}
+
+    
+impl SettingsTab {
+    fn highlight_selected(&self,setting_num: usize) -> Style {
+        if setting_num == self.selected_setting {
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::LightGreen)
-            };
-
-            let break_time_style = if self.selected_setting == 1 {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::LightGreen)
-            };
-
-            let work_time_value = Paragraph::new(format!("{} min", (self.work_time/60)))
-                .alignment(Alignment::Center)
-                .style(work_time_style);
-
-            let break_time_value = Paragraph::new(format!("{} min", self.break_time/60))
-                .alignment(Alignment::Center)
-                .style(break_time_style);
-
-            let iterations_style = if self.selected_setting == 2 {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::LightGreen)
-            };
-            let iterations_text = Paragraph::new("Iterations")
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(Color::White)).add_modifier(Modifier::BOLD);
-
-            let iterations_value = Paragraph::new(format!("{} iters", self.iterations))
-                .alignment(Alignment::Center)
-                .style(iterations_style);
-
-            work_time_text.render(settings_layout[1], buf);
-            work_time_value.render(settings_layout[2], buf);
-            break_time_text.render(settings_layout[3], buf);
-            break_time_value.render(settings_layout[4], buf);
-            iterations_text.render(settings_layout[5], buf);
-            iterations_value.render(settings_layout[6], buf);
+            }
     }
 }
 fn format_ascii_time(input: &str) -> String {
-    let mut output = vec![String::new(); 7]; // 7 lines per character
+    let mut output = vec![String::new(); 7];
 
     for ch in input.chars() {
         let index = match ch {
@@ -274,7 +340,7 @@ fn format_ascii_time(input: &str) -> String {
         
         for (i, line) in ascii_lines.iter().enumerate() {
             output[i].push_str(line);
-            output[i].push_str("  "); // Space between numbers
+            output[i].push_str("  "); 
         }
     }
 

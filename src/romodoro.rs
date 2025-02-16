@@ -1,22 +1,27 @@
+use std::{cell::RefCell, rc::Rc};
+
 use tokio_util::sync::CancellationToken;
 
-use crate::{app::Event, settings::Settings, timer::*};
+use crate::{app::Event, settings::{self, PomodoroSettings, SettingsTab}, timer::{self, *}};
 
 #[derive(Debug)]
 pub struct Pomodoro {
     pub timer : Timer,
     time_sender: tokio::sync::mpsc::Sender<i64>,
     command_rx: Option<tokio::sync::mpsc::Receiver<TimerCommand>>,
+    settings: Rc<RefCell<SettingsTab>>
 }
 impl Pomodoro {
-    pub fn new(time_sender: tokio::sync::mpsc::Sender<i64>, command_rx: tokio::sync::mpsc::Receiver<TimerCommand>,command_tx: tokio::sync::mpsc::Sender<TimerCommand>) -> Self {
-        let mut timer = Timer::default();
+    pub fn new(time_sender: tokio::sync::mpsc::Sender<i64>, command_rx: tokio::sync::mpsc::Receiver<TimerCommand>,command_tx: tokio::sync::mpsc::Sender<TimerCommand>, settings: Rc<RefCell<SettingsTab>>) -> Self {
+        let mut timer = Timer::from(settings.borrow().timer_settings.clone());
+        timer.set_config(settings.clone());
         timer.countdown_command_tx = Some(command_tx);
-        Pomodoro {timer, command_rx: Some(command_rx), time_sender}
+        Pomodoro {timer, command_rx: Some(command_rx), time_sender, settings}
     }
     pub async fn create_countdown(&mut self, cancel_token: CancellationToken) { 
         let sender = self.time_sender.clone();
         let command_rx = self.command_rx.take().expect("Timer initialized");
+        self.timer.set_config(self.settings.clone());
         self.timer.run(sender, command_rx, cancel_token).await;
     }
     pub async fn cycle(&mut self) {
@@ -29,6 +34,9 @@ impl Pomodoro {
     }
     pub fn get_work_state(&self) -> PomodoroState {
          self.timer.get_work_state()
+    }
+    pub fn get_setting_ref(&self) -> Rc<RefCell<SettingsTab>> {
+        self.settings.clone()
     }
 
         
@@ -54,11 +62,9 @@ impl Pomodoro {
         self.timer.set_time_left(time);
         if let PomodoroState::Work(_) = self.timer.get_current_state() {
             self.timer.set_elapsed_time((self.timer.get_iteration()-1) as i64 * Timer::get_duration(&self.timer.get_work_state()) + Timer::get_duration(&self.get_work_state())-time)
-
         }
-
     }
-    pub async fn set_setting(&mut self, setting: Settings) {
+    pub async fn set_setting(&mut self, setting: PomodoroSettings) {
         self.timer.set_setting(setting).await
     }
     pub async fn handle_timer_responses(&mut self, time: i64) {

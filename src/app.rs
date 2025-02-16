@@ -1,8 +1,9 @@
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind};
 use tokio_util::sync::CancellationToken;
 use ratatui::DefaultTerminal;
+use std::cell::RefCell;
 use std::io;
-use crate::timer::*;
+use std::rc::Rc;
 use crate::romodoro::Pomodoro;
 use crate::settings::*;
 
@@ -12,15 +13,15 @@ pub struct App {
     exit: bool,
     pomodoro: Pomodoro,
     selected_tab: usize,
-    settings: SettingsTab,
+    settings: Rc<RefCell<SettingsTab>>,
 }
 pub enum Event {
     TimerTick(i64),
     KeyPress(KeyEvent),
 }
 impl App {
-    pub fn new(pomodoro: Pomodoro)-> Self {
-        App{pomodoro, exit:false, selected_tab: 0, settings: SettingsTab::default()}
+    pub fn new(pomodoro: Pomodoro, settings: Rc<RefCell<SettingsTab>>)-> Self {
+        App{pomodoro, exit:false, selected_tab: 0, settings}
     }
     pub async fn run(
         &mut self,
@@ -58,7 +59,7 @@ impl App {
      async fn handle_key_event(&mut self, key_event: KeyEvent) {
          //global
          match key_event.code {
-             KeyCode::Char('q') => self.exit(),
+             KeyCode::Char('Q') => self.exit(),
              KeyCode::Tab => self.change_tab(),
              _ => {},
          }
@@ -72,11 +73,12 @@ impl App {
              },
              1 => match key_event.code {
                  // settings
-                 KeyCode::Down => self.settings.select_down(),
-                 KeyCode::Up => self.settings.select_up(),
-                 KeyCode::Right => self.settings.increment(),
-                 KeyCode::Left => self.settings.decrement(),
+                 KeyCode::Down => self.settings.borrow_mut().select_down(),
+                 KeyCode::Up => self.settings.borrow_mut().select_up(),
+                 KeyCode::Right => self.settings.borrow_mut().increment(),
+                 KeyCode::Left => self.settings.borrow_mut().decrement(),
                  KeyCode::Char(' ') => self.update_settings().await,
+                 KeyCode::Char('r') => self.settings.borrow_mut().restore_defaults(),
                  _ => {},
              }
              _ => {},
@@ -98,12 +100,12 @@ impl App {
         }
     }
     async fn update_settings(&mut self) {
-        let break_time = self.settings.get_setting(Settings::BreakTime(None));
-        let work_time = self.settings.get_setting(Settings::WorkTime(None));
-        let iterations = self.settings.get_setting(Settings::Iterations(None));
-        let current_break_time: Settings = self.pomodoro.timer.get_break_state().into();
-        let current_work_time: Settings = self.pomodoro.timer.get_work_state().into();
-        let current_iterations: Settings = Settings::Iterations(Some(self.pomodoro.timer.get_total_iterations()));
+        let break_time = self.settings.borrow().get_pomodoro_setting(PomodoroSettings::BreakTime(None));
+        let work_time = self.settings.borrow().get_pomodoro_setting(PomodoroSettings::WorkTime(None));
+        let iterations = self.settings.borrow().get_pomodoro_setting(PomodoroSettings::Iterations(None));
+        let current_break_time: PomodoroSettings = self.pomodoro.timer.get_break_state().into();
+        let current_work_time: PomodoroSettings = self.pomodoro.timer.get_work_state().into();
+        let current_iterations: PomodoroSettings = PomodoroSettings::Iterations(Some(self.pomodoro.timer.get_total_iterations()));
         if current_break_time != break_time {
             self.pomodoro.set_setting(break_time).await;
         }
@@ -113,12 +115,13 @@ impl App {
         if current_iterations != iterations {
             self.pomodoro.set_setting(iterations).await;
         }
+        
     }
     pub fn get_selected_tab(&self) -> usize {
         self.selected_tab
     }
-    pub fn get_settings_ref(&self) -> &SettingsTab {
-        &self.settings
+    pub fn get_settings_ref(&self) -> Rc<RefCell<SettingsTab>> {
+        self.settings.clone()
     }
     pub fn get_pomodoro_ref(&self) -> &Pomodoro {
         &self.pomodoro
