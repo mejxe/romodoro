@@ -9,6 +9,7 @@ pub struct SettingsTab {
     pub selected_setting: usize,
     pub ui_settings: UISettings,
     pub timer_settings: TimerSettings,
+    pub stats_setting: StatsSettings,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UISettings {
@@ -29,6 +30,12 @@ pub enum PomodoroSettings {
     Iterations(Option<u8>),
 }
         
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StatsSettings {
+    pub stats_on: bool,
+    pub pixela_username: Option<String>,
+    pub subjects: Vec<String>,
+}
         
 impl SettingsTab {
     pub fn save_to_file(&self) {
@@ -41,7 +48,7 @@ impl SettingsTab {
     pub fn new() -> SettingsTab {
         let path = ProjectDirs::from("romodoro","mejxedev", "romodoro").unwrap();
         let path = path.config_dir();
-        let config: SettingsTab = toml::from_str(&fs::read_to_string(path.join("config.toml")).unwrap_or("".to_string())).unwrap_or(SettingsTab::default());
+        let config: SettingsTab = toml::from_str(&fs::read_to_string(path.join("config.toml")).unwrap_or("".to_string())).unwrap_or_default();
         config
     }
     pub fn restore_defaults(&mut self) {

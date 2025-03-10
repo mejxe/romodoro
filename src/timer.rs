@@ -25,6 +25,7 @@ pub struct Timer{
     break_state: PomodoroState,
     current_state: PomodoroState,
     next_state: PomodoroState,
+    subject: Option<String>,
     settings: Rc<RefCell<SettingsTab>>,
 
     pub countdown_command_tx:  Option<tokio::sync::mpsc::Sender<TimerCommand>>,
@@ -82,6 +83,7 @@ impl Timer {
 
     }
     pub async fn next_iteration(&mut self) {
+        self.countdown_running = false;
         self.swap_states();
         if let PomodoroState::Work(_) = self.current_state {
             self.iteration += 1;
@@ -149,6 +151,9 @@ impl Timer {
     pub fn get_current_state(&self) -> PomodoroState {
         self.current_state
     }
+    pub fn get_subject(&self) -> Option<String> {
+        self.subject.clone()
+    }
     pub fn set_running(&mut self, state: bool) {
         self.countdown_running = state;
     }
@@ -193,6 +198,7 @@ impl Countdown {
      }
     pub fn next_iteration(&mut self, state: PomodoroState) {
         self.state = state;
+        self.time_left = Timer::get_duration(&state);
     }
 
     pub fn restart(&mut self, state: PomodoroState) {
@@ -242,7 +248,7 @@ impl Default for Timer {
         let duration = Timer::get_duration(&work_state);
         let total_time: i64 = duration * total_iterations as i64;
         let settings = Rc::new(RefCell::new(SettingsTab::default()));
-        Timer {time_left: duration,countdown_running: false, countdown_command_tx: None, total_iterations, current_state: work_state, next_state:break_state, iteration: 1, total_time, total_elapsed: 0, work_state, break_state, settings}
+        Timer {time_left: duration,countdown_running: false, countdown_command_tx: None, total_iterations, current_state: work_state, next_state:break_state, iteration: 1, total_time, total_elapsed: 0, work_state, break_state, settings, subject:None}
         
     }
 }
