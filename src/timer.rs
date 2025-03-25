@@ -110,14 +110,15 @@ impl Timer {
         self.set_total_time();
         self.send_countdown_commands(TimerCommand::Restart(self.work_state)).await;
     }
-    pub async fn set_setting(&mut self, setting: PomodoroSettings) {
-        if self.get_running() {return};
+    pub async fn set_setting(&mut self, setting: PomodoroSettings) -> Option<()> {
+        if self.get_running() {return None};
         match setting {
             PomodoroSettings::Iterations(iterations) => self.set_total_iterations(iterations.unwrap()),
             PomodoroSettings::WorkTime(_) =>self.set_work_state(PomodoroState::from(setting)),
             PomodoroSettings::BreakTime(_) => self.set_break_state(PomodoroState::from(setting)),
         }
         self.restart().await;
+        Some(())
     }
     pub fn get_next_state(&self) -> PomodoroState {
         self.next_state
@@ -284,6 +285,5 @@ impl From<TimerSettings> for Countdown {
 mod tests {
 
 
-    use super::*;
 
 }

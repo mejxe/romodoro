@@ -1,8 +1,10 @@
-use std::{fs};
+use std::{fs, io};
 
 use crate::{timer::*, DEFAULT_BREAK, DEFAULT_ITERATIONS, DEFAULT_WORK, WORK_TIME_INCR, BREAK_TIME_INCR};
 use serde::*;
 use directories::ProjectDirs;
+use crate::error::{SettingsError,Result};
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SettingsTab {
@@ -38,18 +40,24 @@ pub struct StatsSettings {
 }
         
 impl SettingsTab {
-    pub fn save_to_file(&self) {
-        let path = ProjectDirs::from("romodoro","mejxedev", "romodoro").unwrap();
+    pub fn save_to_file(&self) -> Result<()> {
+        let path = ProjectDirs::from("romodoro","mejxedev", "romodoro").ok_or(SettingsError::HomeDirNotFound)?;
         let path = path.config_dir();
-        if !path.exists() {fs::create_dir(&path).unwrap();}
-        let toml_cfg: String = toml::to_string(&self).unwrap();
-        fs::write(path.join("config.toml"), toml_cfg).unwrap();
+        if !path.exists() {fs::create_dir(&path)?}
+        let toml_cfg: String = toml::to_string(&self).expect("Settings should be instantiated correctly");
+        fs::write(path.join("config.toml"), toml_cfg)?;
+        Ok(())
     }
-    pub fn new() -> SettingsTab {
-        let path = ProjectDirs::from("romodoro","mejxedev", "romodoro").unwrap();
+    pub fn new() -> Result<SettingsTab> {
+        let path = ProjectDirs::from("romodoro","mejxedev", "romodoro").ok_or(SettingsError::HomeDirNotFound)?;
         let path = path.config_dir();
-        let config: SettingsTab = toml::from_str(&fs::read_to_string(path.join("config.toml")).unwrap_or("".to_string())).unwrap_or_default();
-        config
+        let config: SettingsTab;
+
+        match &fs::read_to_string(path.join("config.toml")) {
+            Ok(data) => {config = toml::from_str(data).unwrap_or_default()},
+            Err(_) => {config = SettingsTab::default()}
+        }
+        Ok(config)
     }
     pub fn restore_defaults(&mut self) {
         self.timer_settings = TimerSettings::default();

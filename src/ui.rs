@@ -1,7 +1,9 @@
+
 use crate::app::App;
 use crate::romodoro::Pomodoro;
 use crate::settings::SettingsTab;
-use ratatui::{self, buffer::{self, Buffer}, layout::{Alignment, Constraint, Direction, Layout, Margin, Rect}, style::{palette::tailwind, Color, Modifier, Style, Styled, Stylize}, symbols::{self, border}, text::{Line, Span, Text}, widgets::{Block, BorderType, Borders, Gauge, Padding, Paragraph, Tabs, Widget}, DefaultTerminal, Frame};
+use ratatui::{self, buffer::{self, Buffer}, layout::{Alignment, Constraint, Direction, Layout, Margin, Rect}, style::{palette::tailwind, Color, Modifier, Style, Styled, Stylize}, symbols::{self, border}, text::{Line, Span, Text}, widgets::{Block, BorderType, Borders, Clear, Gauge, Padding, Paragraph, Tabs, Widget}, DefaultTerminal, Frame};
+use tokio_util::codec::FramedParts;
 
 impl Widget for &App {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
@@ -37,13 +39,47 @@ impl Widget for &App {
 
         tabs_widget.render(tab_layout[0], buf);
 
+        let popup_area = centered_rect(30, 20, area);
+        let popup_block = Block::default()
+            .title("Are you sure?")
+            .borders(Borders::all())
+            .style(Style::default().bg(Color::DarkGray));
+        let popup_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(10),
+                Constraint::Percentage(60),
+                Constraint::Percentage(10),
+                Constraint::Percentage(30),
+            ])
+            .margin(1)
+            .split(popup_area);
+        let popup_yes_no_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(50),
+                Constraint::Percentage(50),
+            ])
+            .split(popup_layout[3]);
+        let yes_paragraph = Paragraph::new("Yes <y>").alignment(Alignment::Center).style(Style::default().fg(Color::Green)).block(Block::default().borders(Borders::all()));
+        let no_paragraph = Paragraph::new("No <n>").alignment(Alignment::Center).style(Style::default().fg(Color::Red)).block(Block::default().borders(Borders::all()));
+        let question_paragraph = Paragraph::new("This will reset your current timer.").alignment(Alignment::Center).style(Style::default().fg(Color::Gray)).block(Block::default().borders(Borders::BOTTOM));
         match selected_tab {
             0 => self.get_pomodoro_ref().render(layout[1], buf),
             1 => self.get_settings_ref().borrow().render(layout[1], buf),
             2 => self.render_stats(layout[1], buf),
             _ => {}
         }
-    self.render_footer(layout[2], buf);
+        if self.get_show_popup() && selected_tab == 1 {
+            Clear.render(area, buf);
+            popup_block.render(popup_area, buf);
+            question_paragraph.render(popup_layout[1], buf);
+            yes_paragraph.render(popup_yes_no_layout[0], buf);
+            no_paragraph.render(popup_yes_no_layout[1], buf);
+            return
+            
+        }
+        self.render_footer(layout[2], buf);
     }
 }
 impl App {
@@ -61,11 +97,12 @@ impl App {
         footer.render(area, buf);
     }
     fn render_stats(&self, area: Rect, buf: &mut Buffer) {
-        let text = Paragraph::new(format!("Stats Page ({})",self.get_settings_ref().borrow().ui_settings.pause_after_state_change))
+        let text = Paragraph::new(format!("Stats Page (WIP)"))
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::LightGreen));
         text.render(area, buf);
     }
+
     pub fn draw(&self, frame: &mut Frame) {
         frame.render_widget(self, frame.area());
     }
@@ -313,6 +350,7 @@ impl Widget for &SettingsTab {
         pause_change_state_value.render(other_layout[2], buf);
         hide_clock_text.render(other_layout[3], buf);
         hide_clock_value.render(other_layout[4], buf);
+        
     }
 }
 
@@ -360,6 +398,28 @@ const ASCII_NUMBERS: [&str; 11] = [
 "  ███  \n █   █ \n █   █ \n  ████ \n     █ \n    ██ \n  ███  ", // 9
 "        \n   █    \n   █    \n        \n   █    \n   █    \n        ", // :
 ];
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    // Cut the given rectangle into three vertical pieces
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    // Then cut the middle vertical piece into three width-wise pieces
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1] // Return the middle chunk
+}
+
 
 #[cfg(test)]
 mod test {

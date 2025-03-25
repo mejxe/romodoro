@@ -1,6 +1,7 @@
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind};
 use tokio_util::sync::CancellationToken;
 use ratatui::DefaultTerminal;
+use core::panic;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -14,6 +15,7 @@ pub struct App {
     pomodoro: Pomodoro,
     selected_tab: usize,
     settings: Rc<RefCell<SettingsTab>>,
+    settings_popup_showing: bool
 }
 pub enum Event {
     TimerTick(i64),
@@ -21,7 +23,7 @@ pub enum Event {
 }
 impl App {
     pub fn new(pomodoro: Pomodoro, settings: Rc<RefCell<SettingsTab>>)-> Self {
-        App{pomodoro, exit:false, selected_tab: 0, settings}
+        App{pomodoro, exit:false, selected_tab: 0, settings, settings_popup_showing: false}
     }
     pub async fn run(
         &mut self,
@@ -34,13 +36,21 @@ impl App {
 
         let tx_inputs = tx.clone();
         let tx_timer = tx.clone();
+
         let cancelation_token = tokio_util::sync::CancellationToken::new();
         let input_cancel = cancelation_token.clone();
         let timer_comm_cancel = cancelation_token.clone();
         let timer_cancel = cancelation_token.clone();
-        let input_task = tokio::spawn(async move {App::handle_inputs(tx_inputs, input_cancel).await;});
+
+        let input_task = tokio::spawn(async move {match App::handle_inputs(tx_inputs, input_cancel).await {
+            Ok(_) => {},
+            Err(e) => {panic!("{e}")}
+        }
+        });
+
         let timer_task = tokio::spawn(async move {Pomodoro::handle_timer(&mut time_rx, tx_timer, timer_comm_cancel).await;});
         self.pomodoro.create_countdown(timer_cancel).await;
+
         terminal.draw(|frame| self.draw(frame))?;
         while !self.exit {
             if let Some(event) = rx.recv().await {
@@ -52,7 +62,7 @@ impl App {
             terminal.draw(|frame| self.draw(frame))?;
         }
         cancelation_token.cancel();
-        timer_task.await.unwrap();
+        timer_task.await?;
         input_task.abort();
         Ok(())
     }
@@ -60,7 +70,7 @@ impl App {
          //global
          match key_event.code {
              KeyCode::Char('Q') => self.exit(),
-             KeyCode::Tab => self.change_tab(),
+             KeyCode::Tab if !self.settings_popup_showing => self.change_tab(),
              _ => {},
          }
          match self.selected_tab {
@@ -71,19 +81,30 @@ impl App {
                      _ => {},
                  }
              },
-             1 => match key_event.code {
                  // settings
-                 KeyCode::Down => self.settings.borrow_mut().select_down(),
-                 KeyCode::Up => self.settings.borrow_mut().select_up(),
-                 KeyCode::Right => self.settings.borrow_mut().increment(),
-                 KeyCode::Left => self.settings.borrow_mut().decrement(),
-                 KeyCode::Char(' ') => self.update_settings().await,
-                 KeyCode::Char('r') => self.settings.borrow_mut().restore_defaults(),
-                 _ => {},
+             1 => match self.settings_popup_showing {
+                 false => {
+                     match key_event.code {
+                         KeyCode::Down => self.settings.borrow_mut().select_down(),
+                         KeyCode::Up => self.settings.borrow_mut().select_up(),
+                         KeyCode::Right => self.settings.borrow_mut().increment(),
+                         KeyCode::Left => self.settings.borrow_mut().decrement(),
+                         KeyCode::Char(' ') => self.update_settings().await,
+                         KeyCode::Char('r') => self.settings.borrow_mut().restore_defaults(),
+                         _ => {},
+                     }
+                 },
+                 true => {
+                     match key_event.code {
+                         KeyCode::Char('y') if self.settings_popup_showing => self.overwrite_timer().await,
+                         KeyCode::Char('n') if self.settings_popup_showing => {self.settings_popup_showing = false}
+                         _ => {},
+                     }
+                 }
              }
              _ => {},
-             }
          }
+     }
 
 
 
@@ -100,6 +121,10 @@ impl App {
         }
     }
     async fn update_settings(&mut self) {
+        if self.pomodoro.timer.get_running() {
+            self.settings_popup_showing = true;
+            return;
+        }
         let break_time = self.settings.borrow().get_pomodoro_setting(PomodoroSettings::BreakTime(None));
         let work_time = self.settings.borrow().get_pomodoro_setting(PomodoroSettings::WorkTime(None));
         let iterations = self.settings.borrow().get_pomodoro_setting(PomodoroSettings::Iterations(None));
@@ -117,6 +142,12 @@ impl App {
         }
         
     }
+    pub async fn overwrite_timer(&mut self) {
+        self.pomodoro.timer.stop().await;
+        self.settings_popup_showing = false;
+        self.update_settings().await;
+    }
+
     pub fn get_selected_tab(&self) -> usize {
         self.selected_tab
     }
@@ -125,6 +156,9 @@ impl App {
     }
     pub fn get_pomodoro_ref(&self) -> &Pomodoro {
         &self.pomodoro
+    }
+    pub fn get_show_popup(&self) -> bool {
+        self.settings_popup_showing
     }
 
      fn change_tab(&mut self) {

@@ -64,7 +64,7 @@ impl Pomodoro {
             self.timer.set_elapsed_time((self.timer.get_iteration()-1) as i64 * Timer::get_duration(&self.timer.get_work_state()) + Timer::get_duration(&self.get_work_state())-time)
         }
     }
-    pub async fn set_setting(&mut self, setting: PomodoroSettings) {
+    pub async fn set_setting(&mut self, setting: PomodoroSettings) -> Option<()> {
         self.timer.set_setting(setting).await
     }
     pub async fn handle_timer_responses(&mut self, time: i64) {
