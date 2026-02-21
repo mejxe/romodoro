@@ -465,7 +465,7 @@ impl PixelaClient {
             )
             .into_iter()
             .map(|entry| {
-                let mut pixel = ComplexPixel::new(
+                let pixel = ComplexPixel::new(
                     Progress::Int(entry.1 .0),
                     entry.0 .1.clone(),
                     entry.0 .0.clone().to_string(),

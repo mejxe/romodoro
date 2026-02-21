@@ -1,6 +1,10 @@
 use super::{
-    pomodoro_tab::PomodoroTab, settings_tab::SettingsTab, stats_tab::StatsTab,
-    ui_utils::FooterHint, YELLOW,
+    helpers::{HelpModal, Modal},
+    pomodoro_tab::PomodoroTab,
+    settings_modal::SettingsModal,
+    stats_tab::StatsTab,
+    ui_utils::FooterHint,
+    YELLOW,
 };
 use crate::{app::App, ui::ui_utils::HintProvider, ui::BG, utils::tabs};
 use ratatui::{
@@ -9,7 +13,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::Span,
-    widgets::{Block, BorderType, Borders, Paragraph, Tabs, Widget},
+    widgets::{Block, BorderType, Borders, Paragraph, Tabs, Widget, Wrap},
     Frame,
 };
 pub struct AppWidget<'a> {
@@ -18,7 +22,7 @@ pub struct AppWidget<'a> {
 
 impl Widget for &mut AppWidget<'_> {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
-        let tabs = ["Timer", "Settings", "Stats"];
+        let tabs = ["Timer", "Stats"];
         let tab_titles: Vec<Span> = tabs
             .iter()
             .map(|t| Span::styled(*t, Style::default().fg(Color::White)))
@@ -30,7 +34,6 @@ impl Widget for &mut AppWidget<'_> {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(" Menu ")
                     .border_style(Style::default().fg(YELLOW)),
             )
             .highlight_style(Style::default().fg(Color::Rgb(240, 94, 90)))
@@ -47,7 +50,7 @@ impl Widget for &mut AppWidget<'_> {
 
         let tab_layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Max(29), Constraint::Min(1)])
+            .constraints([Constraint::Max(18)])
             .split(layout[0]);
 
         if let Some(popup) = self.app_context.popup_as_mut() {
@@ -63,23 +66,6 @@ impl Widget for &mut AppWidget<'_> {
                 let mut hints = pomodoro_tab.provide_hints();
                 hints.append(&mut self.provide_hints());
                 pomodoro_tab.render(layout[1], buf);
-                self.render_footer(layout[2], buf, hints);
-            }
-            tabs::Tabs::SettingsTab => {
-                if window_too_small(65, 30, area, buf) {
-                    return;
-                }
-                let settings_guard = self.app_context.get_settings_ref();
-                let settings = settings_guard.borrow();
-                let timer = &self.app_context.pomodoro().timer;
-                let settings_tab = SettingsTab::new(
-                    &settings,
-                    timer,
-                    self.app_context.pomodoro().pixela_client(),
-                );
-                let hints = settings_tab.provide_hints();
-
-                settings_tab.render(layout[1], buf);
                 self.render_footer(layout[2], buf, hints);
             }
             tabs::Tabs::StatsTab => {
@@ -103,11 +89,25 @@ impl Widget for &mut AppWidget<'_> {
             }
         }
         tabs_widget.render(tab_layout[0], buf);
-        for y in area.top()..area.bottom() {
-            for x in area.left()..area.right() {
-                let cell = buf.cell_mut((x, y)).expect("Should work");
-                if cell.style().bg == Some(Color::Reset) {
-                    cell.set_style(cell.style().bg(BG));
+        AppWidget::set_background(area, buf);
+        if let Some(modal) = self.app_context.modal() {
+            AppWidget::dim_background(area, buf);
+            match modal {
+                Modal::HelperModal => {
+                    HelpModal::new(self.app_context.selected_tab()).render(area, buf)
+                }
+                Modal::SettingsModal => {
+                    let settings_guard = self.app_context.get_settings_ref();
+                    let settings = settings_guard.borrow();
+                    let timer = &self.app_context.pomodoro().timer;
+                    let settings_tab = SettingsModal::new(
+                        self.app_context.selected_tab(),
+                        &settings,
+                        timer,
+                        self.app_context.pomodoro().pixela_client(),
+                    );
+
+                    settings_tab.render(area, buf);
                 }
             }
         }
@@ -126,7 +126,8 @@ fn window_too_small(
         "Terminal too small {}x{}, please resize to at least {}x{}",
         area.width, area.height, min_width, min_height
     ))
-    .centered();
+    .centered()
+    .wrap(Wrap { trim: true });
     warning.render(area, buf);
     return true;
 }
@@ -161,5 +162,23 @@ impl<'a> AppWidget<'a> {
 
     pub fn draw(&mut self, frame: &mut Frame) {
         frame.render_widget(self, frame.area());
+    }
+    fn set_background(area: Rect, buf: &mut Buffer) {
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                let cell = buf.cell_mut((x, y)).expect("Should work");
+                if cell.style().bg == Some(Color::Reset) {
+                    cell.set_style(cell.style().bg(BG));
+                }
+            }
+        }
+    }
+    fn dim_background(area: Rect, buf: &mut Buffer) {
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                let cell = buf.cell_mut((x, y)).expect("Should work");
+                cell.modifier.insert(Modifier::DIM);
+            }
+        }
     }
 }

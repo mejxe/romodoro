@@ -76,18 +76,19 @@ impl App {
         //global
         match key_event.code {
             KeyCode::Char('Q') => self.exit(),
-            KeyCode::BackTab
-                if self.popup().is_none() && !(self.settings().borrow().mode() == Mode::Input) =>
-            {
-                self.settings().borrow_mut().change_mode(Mode::Normal);
-                self.selected_tab_mut().prev();
-            }
             KeyCode::Tab
-                if self.popup().is_none() && !(self.settings().borrow().mode() == Mode::Input) =>
+                if self.popup().is_none()
+                    && self.modal().is_none()
+                    && !(self.settings().borrow().mode() == Mode::Input) =>
             {
                 self.settings().borrow_mut().change_mode(Mode::Normal);
                 self.selected_tab_mut().next();
             }
+            KeyCode::Char('S') => {
+                self.set_modal(Some(crate::ui::helpers::Modal::SettingsModal));
+                self.set_modal_tab();
+            }
+            KeyCode::Char('H') => self.set_modal(Some(crate::ui::helpers::Modal::HelperModal)),
             _ => {}
         }
         let list_height = list_height(&self.popup_size());
@@ -96,18 +97,35 @@ impl App {
             return;
         };
         let settings_mode = self.settings().borrow().mode();
+        if let Some(modal) = self.modal() {
+            match modal {
+                crate::ui::helpers::Modal::SettingsModal => match settings_mode {
+                    Mode::Normal => self.handle_settings_normal(key_event).await,
+                    Mode::Input => self.handle_settings_input(key_event).await,
+                },
+                crate::ui::helpers::Modal::HelperModal => self.handle_help(key_event).await,
+            }
+            return;
+        }
         match self.selected_tab() {
             Tabs::TimerTab => self.handle_timer_tab(key_event).await,
-            Tabs::SettingsTab => match settings_mode {
-                Mode::Modify => self.handle_settings_modify(key_event).await,
-                Mode::Input => self.handle_settings_input(key_event).await,
-                Mode::Normal => self.handle_settings_normal(key_event).await,
-            },
             Tabs::StatsTab => self.handle_pixela_keybinds(key_event).await,
         }
     }
     async fn overwrite_timer_for_subject(&mut self, index: usize) {
         self.pomodoro_mut().restart_timer().await;
         self.pomodoro_mut().set_current_subject_index(index);
+    }
+    fn set_modal_tab(&mut self) {
+        match self.selected_tab() {
+            Tabs::TimerTab => self
+                .settings()
+                .borrow_mut()
+                .set_selected_tab(crate::utils::settings_helper_structs::SettingsTabs::Pomodoro),
+            Tabs::StatsTab => self
+                .settings()
+                .borrow_mut()
+                .set_selected_tab(crate::utils::settings_helper_structs::SettingsTabs::Stats),
+        }
     }
 }

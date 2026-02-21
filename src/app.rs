@@ -5,6 +5,7 @@ use crate::settings::*;
 use crate::stats::pixela::graph::Graph;
 use crate::timers::counters::CounterMode;
 use crate::ui::app_ui::AppWidget;
+use crate::ui::helpers::Modal;
 use crate::ui::popup::popup_area;
 use crate::utils::tabs::Tabs;
 use arboard::Clipboard;
@@ -30,6 +31,7 @@ pub struct App {
     settings: Rc<RefCell<Settings>>,
     popup: Option<Popup>, // TODO: popup queue maybe so they don't overwrite each other?
     popup_size: Rect,
+    modal: Option<Modal>,
     #[derivative(Debug = "ignore")]
     clipboard: Option<Clipboard>,
     event_tx: tokio::sync::mpsc::Sender<Event>,
@@ -58,6 +60,7 @@ impl App {
             selected_tab: Tabs::TimerTab,
             settings,
             popup: None,
+            modal: None,
             clipboard: Clipboard::new().ok(),
             event_tx,
             popup_size: Rect::default(),
@@ -291,5 +294,16 @@ impl App {
 
     pub fn popup_size(&self) -> Rect {
         self.popup_size
+    }
+    pub fn is_modal_showing(&self) -> bool {
+        self.modal.is_some()
+    }
+
+    pub fn modal(&self) -> Option<&Modal> {
+        self.modal.as_ref()
+    }
+
+    pub fn set_modal(&mut self, modal: Option<Modal>) {
+        self.modal = modal;
     }
 }
