@@ -91,6 +91,9 @@ impl App {
             KeyCode::Char('H') => self.set_modal(Some(crate::ui::helpers::Modal::HelperModal)),
             _ => {}
         }
+        if self.terminal_too_small() {
+            return;
+        }
         let list_height = list_height(&self.popup_size());
         if let Some(popup) = self.take_popup() {
             self.handle_popups(key_event, popup, list_height).await;

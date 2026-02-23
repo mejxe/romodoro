@@ -10,12 +10,12 @@ use ratatui::style::Modifier;
 use ratatui::style::Style;
 use ratatui::style::{Color, Stylize};
 use ratatui::text::Text;
-use ratatui::widgets::BorderType;
 use ratatui::widgets::Borders;
 use ratatui::widgets::Gauge;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Widget;
 use ratatui::widgets::{Block, Padding};
+use ratatui::widgets::{BorderType, Wrap};
 
 use crate::romodoro::Pomodoro;
 
@@ -45,11 +45,15 @@ impl Widget for PomodoroTab<'_> {
             .border_type(BorderType::Rounded)
             .style(Style::default().fg(YELLOW));
 
-        if area.width < 75 || area.height < 30 {
+        if area.width < 45 || area.height < 20 {
+            outer_block.render(area, buf);
             match self.pomodoro.timer.counter_mode() {
                 CounterMode::Countdown => self.render_compressed_pomodoro_ui(area, buf),
                 CounterMode::Countup => self.render_compressed_flowmodoro_ui(area, buf),
             }
+            return;
+        } else if area.width < 75 || area.height < 30 {
+            self.render_smaller_numbers(area, buf);
             return;
         }
         let color = match self.pomodoro.timer.current_state() {
@@ -70,12 +74,15 @@ impl Widget for PomodoroTab<'_> {
             ),
             false => (
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
-                format_ascii_time(&format!(
-                    "\n\n{:02}:{:02}:{:02}",
-                    time / 3600,
-                    (time % 3600) / 60,
-                    time % 60
-                )),
+                format_ascii_time(
+                    &format!(
+                        "\n\n{:02}:{:02}:{:02}",
+                        time / 3600,
+                        (time % 3600) / 60,
+                        time % 60
+                    ),
+                    false,
+                ),
                 Style::default().fg(color),
                 "".to_string(),
             ),
@@ -198,10 +205,13 @@ impl<'a> PomodoroTab<'a> {
         let mut smol = false;
         let mut text_align = Alignment::Left;
         // smoll mode
-        if area.width < 150 {
+        if area.width < 130 {
             smol = true;
-            center_percentage = 70;
+            center_percentage = 50;
             text_align = Alignment::Center
+        }
+        if area.width < 100 {
+            center_percentage = 70;
         }
         let outer_block = Block::bordered()
             .title(" Flowmodoro Summary ")
@@ -226,11 +236,16 @@ impl<'a> PomodoroTab<'a> {
         } else {
             self.pomodoro.timer.break_time()
         };
-        let next_break_time = UIHelper::create_settings_paragraph(
-            &format!("Next break time length: {break_time} seconds "),
-            None,
-        )
-        .alignment(text_align);
+        let next_break_time_text = {
+            if smol {
+                &format!("Break time: {break_time}s")
+            } else {
+                &format!("Next break length: {break_time}s")
+            }
+        };
+        let next_break_time = UIHelper::create_settings_paragraph(next_break_time_text, None)
+            .wrap(Wrap { trim: true })
+            .alignment(text_align);
         let worked_for = match smol {
             false => format!(
                 "{:02} hrs, {:02} mins, {:02} secs",
@@ -246,13 +261,21 @@ impl<'a> PomodoroTab<'a> {
             ),
         };
 
-        let already_worked_for =
-            UIHelper::create_settings_paragraph(&format!("Already worked for: {worked_for}"), None)
-                .alignment(text_align);
+        let already_worked_for_text = {
+            if smol {
+                &format!("Work time: {worked_for}")
+            } else {
+                &format!("Already worked for: {worked_for}")
+            }
+        };
+        let already_worked_for = UIHelper::create_settings_paragraph(already_worked_for_text, None)
+            .wrap(Wrap { trim: true })
+            .alignment(text_align);
         let breaks_taken_num = self.pomodoro.timer.iteration().saturating_sub(1);
         let breaks_taken =
-            UIHelper::create_settings_paragraph(&format!("Breaks taken: {breaks_taken_num}"), None)
-                .alignment(text_align);
+            UIHelper::create_settings_paragraph(&format!("Breaks: {breaks_taken_num}"), None)
+                .alignment(text_align)
+                .wrap(Wrap { trim: true });
         next_break_time.render(inside_layout[0], buf);
         already_worked_for.render(inside_layout[1], buf);
         breaks_taken.render(inside_layout[2], buf);
@@ -315,27 +338,34 @@ impl<'a> PomodoroTab<'a> {
         .flex(Flex::Center)
         .split(area);
         let time = self.pomodoro.timer.time_left();
-        let timer_paragraph = Paragraph::new(format!(
-            "{:02}:{:02}:{:02}",
-            time / 3600,
-            (time % 3600) / 60,
-            time % 60
-        ))
+        let timer_paragraph = UIHelper::create_settings_paragraph(
+            &format!(
+                "{:02}:{:02}:{:02}",
+                time / 3600,
+                (time % 3600) / 60,
+                time % 60
+            ),
+            Some(Style::default().fg(Color::Gray)),
+        )
         .centered();
         let (current_state, color) = match self.pomodoro.timer.current_state() {
             TimerState::Work(_) => ("Work", BLUE),
             TimerState::Break(_) => ("Break", GREEN),
         };
-        let state_paragraph = Paragraph::new(current_state).centered().fg(color);
+        let state_paragraph =
+            UIHelper::create_settings_paragraph(current_state, Some(Style::default().fg(color)))
+                .centered();
 
         let break_time = if let TimerState::Break(_) = self.pomodoro.timer.current_state() {
             0
         } else {
             self.pomodoro.timer.break_time()
         };
-        let next_break_time = Paragraph::new(format!("NxtBreak: {break_time}"))
-            .centered()
-            .fg(YELLOW);
+        let next_break_time = UIHelper::create_settings_paragraph(
+            &format!("NxtBreak: {break_time}"),
+            Some(Style::default().fg(YELLOW)),
+        )
+        .centered();
         let time_elapsed = self.pomodoro.timer.total_elapsed();
         let worked_for = format!(
             "{:02}:{:02}:{:02}",
@@ -343,13 +373,17 @@ impl<'a> PomodoroTab<'a> {
             (time_elapsed % 3600) / 60,
             time_elapsed % 60
         );
-        let already_worked_for = Paragraph::new(format!("TPassed: {worked_for}"))
-            .centered()
-            .fg(RED);
+        let already_worked_for = UIHelper::create_settings_paragraph(
+            &format!("TPassed: {worked_for}"),
+            Some(Style::default().fg(RED)),
+        )
+        .centered();
         let breaks_taken_num = self.pomodoro.timer.iteration().saturating_sub(1);
-        let breaks_taken = Paragraph::new(format!("Breaks: {breaks_taken_num}"))
-            .centered()
-            .fg(BLUE);
+        let breaks_taken = UIHelper::create_settings_paragraph(
+            &format!("Breaks: {breaks_taken_num}"),
+            Some(Style::default().fg(BLUE)),
+        )
+        .centered();
         state_paragraph.render(layout[0], buf);
         timer_paragraph.render(layout[1], buf);
         next_break_time.render(layout[2], buf);
@@ -370,34 +404,125 @@ impl<'a> PomodoroTab<'a> {
         .flex(Flex::Center)
         .split(area);
         let time = self.pomodoro.timer.time_left();
-        let timer_paragraph = Paragraph::new(format!(
-            "{:02}:{:02}:{:02}",
-            time / 3600,
-            (time % 3600) / 60,
-            time % 60
-        ))
+        let timer_paragraph = UIHelper::create_settings_paragraph(
+            &format!(
+                "{:02}:{:02}:{:02}",
+                time / 3600,
+                (time % 3600) / 60,
+                time % 60
+            ),
+            Some(Style::default().fg(Color::Gray)),
+        )
         .centered();
         let (current_state, color) = match self.pomodoro.timer.current_state() {
             TimerState::Work(_) => ("Work", BLUE),
             TimerState::Break(_) => ("Break", GREEN),
         };
-        let iteration_paragraph = Paragraph::new(format!(
-            "C_Iteration: {}, Iterations: {}",
-            self.pomodoro.timer.iteration(),
-            self.pomodoro.timer.total_iterations()
-        ))
-        .centered()
-        .fg(YELLOW);
-        let state_paragraph = Paragraph::new(current_state).centered().fg(color);
+        let iteration_paragraph = UIHelper::create_settings_paragraph(
+            &format!(
+                "C_Iteration: {}, Iterations: {}",
+                self.pomodoro.timer.iteration(),
+                self.pomodoro.timer.total_iterations()
+            ),
+            Some(Style::default().fg(YELLOW)),
+        )
+        .centered();
+        let state_paragraph =
+            UIHelper::create_settings_paragraph(current_state, Some(Style::default().fg(color)))
+                .centered();
         timer_paragraph.render(layout[0], buf);
         state_paragraph.render(layout[1], buf);
         iteration_paragraph.render(layout[2], buf);
+    }
+    fn render_smaller_numbers(
+        &self,
+        area: ratatui::prelude::Rect,
+        buf: &mut ratatui::prelude::Buffer,
+    ) {
+        let time = self.pomodoro.timer.time_left();
+        let now_text = format!("Now: {}", self.pomodoro.timer.current_state());
+
+        let main_title = match self.pomodoro.timer.counter_mode() {
+            CounterMode::Countup => " Flowmodoro Timer ",
+            CounterMode::Countdown => " Pomodoro Timer ",
+        };
+        let outer_block = Block::default()
+            .title(main_title)
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .style(Style::default().fg(YELLOW));
+
+        let color = match self.pomodoro.timer.current_state() {
+            TimerState::Work(_) => BLUE,
+            TimerState::Break(_) => GREEN,
+        };
+        let (timer_style, text_of_timer) = (
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+            format_ascii_time(
+                &format!(
+                    "\n\n{:02}:{:02}:{:02}",
+                    time / 3600,
+                    (time % 3600) / 60,
+                    time % 60,
+                ),
+                true,
+            ),
+        );
+        let formatted_timer_text = Text::from(text_of_timer);
+
+        let timer_text = Paragraph::new(formatted_timer_text.patch_style(timer_style))
+            .alignment(Alignment::Center);
+
+        // Style the state indicator based on current state
+        let now_paragraph_style = match self.pomodoro.timer.current_state() {
+            TimerState::Work(_) => Style::default().fg(BLUE),
+            TimerState::Break(_) => Style::default().fg(GREEN),
+        };
+
+        let now_paragraph =
+            UIHelper::create_settings_paragraph(&now_text, Some(now_paragraph_style))
+                .alignment(Alignment::Center);
+        let spacer = Block::bordered()
+            .borders(Borders::TOP)
+            .border_type(BorderType::Thick)
+            .border_style(Style::default().fg(YELLOW));
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Max(0),    // Small gap
+                Constraint::Length(1), // Now text
+                Constraint::Max(1),    // Small gap
+                Constraint::Length(6), // ASCII timer
+                Constraint::Length(3), // Spacer
+                Constraint::Length(0), // ASCII Animation
+                Constraint::Length(1), // Subject select
+                Constraint::Length(1), // ASCII Spacer
+                Constraint::Max(7),    // Pomodoro/Flowmodoro layouts
+            ])
+            .flex(ratatui::layout::Flex::Center)
+            .split(outer_block.inner(area));
+
+        let spacer_layout = Layout::horizontal([Constraint::Percentage(50)])
+            .flex(Flex::Center)
+            .split(layout[4]);
+        // Render all elements
+        outer_block.render(area, buf);
+        now_paragraph.render(layout[1], buf);
+        timer_text.render(layout[3], buf);
+        spacer.render(spacer_layout[0], buf);
+        let layout_spot = 8;
+        self.render_subject_select(layout[6], buf);
+        match self.pomodoro.timer.counter_mode() {
+            CounterMode::Countdown => self.render_pomodoro_ui(layout[layout_spot], buf),
+            CounterMode::Countup => self.render_flowmodoro_ui(layout[layout_spot], buf),
+        }
     }
 }
 fn ascii_animation(frames: &[&str], time: i64) -> String {
     frames[time as usize % (frames.len() - 1)].to_string()
 }
-fn format_ascii_time(input: &str) -> String {
+fn format_ascii_time(input: &str, small: bool) -> String {
     let mut output = vec![String::new(); 7];
 
     for ch in input.chars() {
@@ -407,29 +532,42 @@ fn format_ascii_time(input: &str) -> String {
             _ => continue,
         };
 
-        let ascii_lines: Vec<&str> = ASCII_NUMBERS[index].lines().collect();
-
-        for (i, line) in ascii_lines.iter().enumerate() {
-            output[i].push_str(&format!("{:<7}", line));
-            output[i].push_str("  ");
+        if small {
+            let ascii_lines: Vec<&str> = SMALLER_ASCII_NUMBERS[index].lines().collect();
+            for (i, line) in ascii_lines.iter().enumerate() {
+                output[i].push_str(&format!("{:<3}", line));
+                output[i].push_str("  ");
+            }
+        } else {
+            let ascii_lines: Vec<&str> = ASCII_NUMBERS[index].lines().collect();
+            for (i, line) in ascii_lines.iter().enumerate() {
+                output[i].push_str(&format!("{:<7}", line));
+                output[i].push_str("  ");
+            }
         }
     }
 
     output.join("\n")
 }
+const SMALLER_ASCII_NUMBERS: [&str; 11] = [
+    "███\n█ █\n█ █\n█ █\n███", // 0
+    " ██\n  █\n  █\n  █\n  █", // 1
+    "███\n  █\n███\n█  \n███", // 2
+    "███\n  █\n███\n  █\n███", // 3
+    "█ █\n█ █\n███\n  █\n  █", // 4
+    "███\n█  \n███\n  █\n███", // 5
+    "███\n█  \n███\n█ █\n███", // 6
+    "███\n  █\n  █\n  █\n  █", // 7
+    "███\n█ █\n███\n█ █\n███", // 8
+    "███\n█ █\n███\n  █\n███", // 9
+    "   \n █ \n   \n █ \n   ", // 10 (:)
+];
 impl HintProvider for PomodoroTab<'_> {
     fn provide_hints(&self) -> Vec<FooterHint> {
-        let mut def = vec![FooterHint::new("r", "Reset timer")];
-
-        let mut state_dependent = match self.pomodoro.timer.counter_mode() {
-            CounterMode::Countup if self.pomodoro.timer.in_work_state() => vec![
-                FooterHint::new("Space", "Cycle"),
-                FooterHint::new("x", "Start Break"),
-            ],
-            _ => vec![FooterHint::new("Space", "Cycle")],
-        };
-        state_dependent.append(&mut def);
-        state_dependent
+        vec![
+            FooterHint::new("Space", "Cycle"),
+            FooterHint::new("r", "Reset timer"),
+        ]
     }
 }
 
@@ -440,6 +578,12 @@ mod test {
     #[test]
     fn ascii_text_works() {
         let time = "01:32:29";
-        println!("{}", format_ascii_time(time));
+        println!("{}", format_ascii_time(time, false));
+    }
+    #[test]
+    fn small_ascii_text_works() {
+        let time = "01:32:29";
+        println!("{}", format_ascii_time(time, true));
+        panic!("test")
     }
 }

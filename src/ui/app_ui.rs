@@ -53,13 +53,11 @@ impl Widget for &mut AppWidget<'_> {
             .constraints([Constraint::Max(18)])
             .split(layout[0]);
 
-        if let Some(popup) = self.app_context.popup_as_mut() {
-            popup.render(area, buf);
-            return;
-        }
+        self.app_context.set_terminal_too_small(false);
         match selected_tab {
             tabs::Tabs::TimerTab => {
                 if window_too_small(20, 10, area, buf) {
+                    self.app_context.set_terminal_too_small(true);
                     return;
                 }
                 let pomodoro_tab = PomodoroTab::new(self.app_context.pomodoro());
@@ -70,6 +68,7 @@ impl Widget for &mut AppWidget<'_> {
             }
             tabs::Tabs::StatsTab => {
                 if window_too_small(65, 30, area, buf) {
+                    self.app_context.set_terminal_too_small(true);
                     return;
                 }
                 let (rendered_stats, hints) = if let Some(stats_client) =
@@ -90,6 +89,11 @@ impl Widget for &mut AppWidget<'_> {
         }
         tabs_widget.render(tab_layout[0], buf);
         AppWidget::set_background(area, buf);
+        if let Some(popup) = self.app_context.popup_as_mut() {
+            AppWidget::dim_background(area, buf);
+            popup.render(area, buf);
+            return;
+        }
         if let Some(modal) = self.app_context.modal() {
             AppWidget::dim_background(area, buf);
             match modal {

@@ -121,7 +121,9 @@ impl Settings {
             return;
         }
         let num_of_settings = self.selected_tab.amount();
-        if let CounterMode::Countup = self.timer_settings.mode {
+        if let (CounterMode::Countup, SettingsTabs::Pomodoro) =
+            (self.timer_settings.mode, self.selected_tab)
+        {
             if self.selected_setting == 0 {
                 self.selected_setting = 3;
             }
@@ -134,7 +136,9 @@ impl Settings {
         if self.selected_setting > 0 {
             self.selected_setting -= 1;
         }
-        if let CounterMode::Countup = self.timer_settings.mode {
+        if let (CounterMode::Countup, SettingsTabs::Pomodoro) =
+            (self.timer_settings.mode, self.selected_tab)
+        {
             if self.selected_setting == 3 {
                 self.selected_setting = 0;
             }
@@ -194,12 +198,14 @@ impl Settings {
             && timer.counter_mode() == self.timer_settings.mode
             && self.timer_settings.break_time == timer.break_time()
     }
-    pub fn do_settings_match(&self, timer: &Timer, stats: Option<&PixelaClient>) -> bool {
-        let pomodoro_match = match timer.counter_mode() {
+    pub fn do_timer_settings_match(&self, timer: &Timer) -> bool {
+        match timer.counter_mode() {
             CounterMode::Countup => self.timer_settings.mode == CounterMode::Countup,
             CounterMode::Countdown => self.do_pomodoro_settings_match(timer),
-        };
-        let stats_match = if let Some(pixela) = stats {
+        }
+    }
+    pub fn do_stats_settings_match(&self, stats: Option<&PixelaClient>) -> bool {
+        if let Some(pixela) = stats {
             self.stats_setting.stats_on
                 && self
                     .stats_setting
@@ -215,8 +221,7 @@ impl Settings {
                     == pixela.user.token()
         } else {
             !self.stats_setting.stats_on
-        };
-        pomodoro_match && stats_match
+        }
     }
     pub fn set_stats(&mut self, on: bool) {
         self.stats_setting.stats_on = on;

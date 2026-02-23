@@ -281,7 +281,14 @@ impl From<PixelToListWrapper<'_>> for ListItem<'_> {
                     complex.date(),
                     complex.display_string(),
                 );
-                if text.len() + 5 >= value.available_size.into() {
+                let rounded_text = {
+                    if rounded {
+                        13
+                    } else {
+                        0
+                    }
+                };
+                if text.len() + 5 + rounded_text >= value.available_size.into() {
                     text = format!(
                         " {} | {} | {}",
                         complex.subject().shortened_graph_name(),
@@ -358,7 +365,7 @@ impl From<SubjectToListWrapper<'_>> for ListItem<'_> {
 impl HintProvider for StatsTab<'_> {
     fn provide_hints(&self) -> Vec<FooterHint> {
         let mut default = vec![
-            FooterHint::new("<>", "Change Tabs"),
+            FooterHint::new("←→", "Change Tabs"),
             FooterHint::new("↑↓", "Select"),
         ];
         let mut based_on_state = match self.pixela_client.focused_pane() {

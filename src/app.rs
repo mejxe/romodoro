@@ -35,6 +35,7 @@ pub struct App {
     #[derivative(Debug = "ignore")]
     clipboard: Option<Clipboard>,
     event_tx: tokio::sync::mpsc::Sender<Event>,
+    terminal_too_small: bool,
 }
 pub enum Event {
     TimerTick(i64),
@@ -64,6 +65,7 @@ impl App {
             clipboard: Clipboard::new().ok(),
             event_tx,
             popup_size: Rect::default(),
+            terminal_too_small: false,
         }
     }
     pub async fn run(
@@ -305,5 +307,13 @@ impl App {
 
     pub fn set_modal(&mut self, modal: Option<Modal>) {
         self.modal = modal;
+    }
+
+    pub fn set_terminal_too_small(&mut self, terminal_too_small: bool) {
+        self.terminal_too_small = terminal_too_small;
+    }
+
+    pub fn terminal_too_small(&self) -> bool {
+        self.terminal_too_small
     }
 }

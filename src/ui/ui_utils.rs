@@ -5,9 +5,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::{
-    settings::Mode, utils::settings_helper_structs::SettingsTabs,
-};
+use crate::{settings::Mode, utils::settings_helper_structs::SettingsTabs};
 
 use super::{app_ui::AppWidget, GREEN, YELLOW};
 #[derive(Clone, Copy)]
@@ -86,7 +84,6 @@ impl HintProvider for AppWidget<'_> {
     fn provide_hints(&self) -> Vec<FooterHint> {
         vec![
             FooterHint::new("Tab", "Next tab"),
-            FooterHint::new("S-Tab", "Prev tab"),
             FooterHint::new("Q", "Quit"),
         ]
     }

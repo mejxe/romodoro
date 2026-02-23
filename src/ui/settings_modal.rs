@@ -43,14 +43,28 @@ impl Widget for &SettingsModal<'_> {
     {
         match self.current_tab {
             Tabs::TimerTab => {
+                if (area.height < 20 || area.width < 40) {
+                    Paragraph::new("Please resize your terminal to at least 20x40")
+                        .centered()
+                        .wrap(Wrap { trim: true })
+                        .render(area, buf);
+                    return;
+                }
                 let modal_area = popup_area(area, 30, 40);
                 Clear.render(modal_area, buf);
                 SettingsModal::render_timer_settings(modal_area, buf, self.settings, self.timer);
             }
             Tabs::StatsTab => {
-                let modal_area = popup_area(area, 40, 20);
+                if (area.height < 20 || area.width < 40) {
+                    Paragraph::new("Please resize your terminal to at least 20x40")
+                        .centered()
+                        .wrap(Wrap { trim: true })
+                        .render(area, buf);
+                    return;
+                }
+                let modal_area = popup_area(area, 35, 25);
                 Clear.render(modal_area, buf);
-                SettingsModal::render_stats_settings(modal_area, buf, self.settings)
+                SettingsModal::render_stats_settings(modal_area, buf, self.settings, self.stats)
             }
         }
     }
@@ -153,7 +167,7 @@ impl SettingsModal<'_> {
             .style(SettingsModal::highlight_selected(selected_setting, 5, mode)),
         );
         lines.push(Line::raw(""));
-        if !settings.do_pomodoro_settings_match(timer) {
+        if !settings.do_timer_settings_match(timer) {
             lines.push(
                 Line::raw("Space to apply settings")
                     .centered()
@@ -166,12 +180,16 @@ impl SettingsModal<'_> {
             .block(block);
         paragraph.render(area, buf);
     }
-    fn render_stats_settings(area: Rect, buf: &mut Buffer, settings: &Settings) {
+    fn render_stats_settings(
+        area: Rect,
+        buf: &mut Buffer,
+        settings: &Settings,
+        stats: Option<&PixelaClient>,
+    ) {
         let block = Block::bordered()
             .title("Settings")
             .padding(Padding::symmetric(2, 1))
             .border_style(Style::new().fg(YELLOW));
-        block.render(area, buf);
         let selected_setting = settings.selected_setting;
         let mode = settings.mode();
         // --- Stats ---
@@ -182,9 +200,11 @@ impl SettingsModal<'_> {
                 Constraint::Length(1), // Stats Enable
                 Constraint::Length(1), // Username
                 Constraint::Length(1), // API Key
+                Constraint::Length(1), // Do stats match
             ])
-            .split(area);
+            .split(block.inner(area));
 
+        block.render(area, buf);
         // --- Header ---
         Paragraph::new(Line::raw("Login").centered().bold().fg(Color::Yellow)).render(rows[0], buf);
 
@@ -281,6 +301,15 @@ impl SettingsModal<'_> {
         ))
         .left_aligned()
         .render(api_cols[1], buf);
+        if !settings.do_stats_settings_match(stats) {
+            Paragraph::new(
+                Line::raw("Space to apply settings")
+                    .centered()
+                    .bold()
+                    .fg(RED),
+            )
+            .render(rows[4], buf);
+        }
     }
     fn highlight_selected(selected_num: u8, setting_num: u8, current_mode: Mode) -> Style {
         if setting_num == selected_num {
