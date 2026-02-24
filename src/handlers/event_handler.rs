@@ -1,13 +1,27 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    app::{App, Event},
+    app::App,
+    error::Error,
     popup::Popup,
     settings::Mode,
-    stats::pixela::graph::Graph,
+    stats::pixela::{graph::Graph, subjects::Subject},
     ui::popup::list_height,
     utils::tabs::Tabs,
 };
+pub enum Event {
+    TimerTick(i64),
+    KeyPress(KeyEvent),
+    TerminalEvent,
+    OverwriteTimerSettings,
+    OverwriteTimerForSubject(usize),
+    SendPixels,
+    DeletePixel,
+    RequestGraph,
+    RestartTimer,
+    GraphReceived(Result<Graph, Error>),
+    LoggedIn(Result<Vec<Subject>, Error>),
+}
 
 impl App {
     pub async fn handle_event(&mut self, event: Event) {
@@ -70,6 +84,15 @@ impl App {
             Event::RestartTimer => {
                 self.pomodoro_mut().timer.restart().await;
             }
+            Event::LoggedIn(response) => match response {
+                Ok(mut subjects) => {
+                    if let Some(pixela_client) = self.pomodoro_mut().pixela_client_as_mut() {
+                        pixela_client.subjects.items_mut().append(&mut subjects);
+                        pixela_client.logged_in = true;
+                    }
+                }
+                Err(err) => self.set_popup(err.into()),
+            },
         }
     }
     async fn handle_key_event(&mut self, key_event: KeyEvent) {

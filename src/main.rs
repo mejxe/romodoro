@@ -14,7 +14,13 @@ async fn main() -> Result<()> {
     let (tx_events, rx_events) = tokio::sync::mpsc::channel(32);
     let (tx_commands, rx_commands) = tokio::sync::mpsc::channel(4);
     let settings_manager = Rc::new(RefCell::new(Settings::new()?));
-    let mut pomodoro = Pomodoro::new(tx, rx_commands, tx_commands, settings_manager.clone());
+    let mut pomodoro = Pomodoro::new(
+        tx,
+        rx_commands,
+        tx_commands,
+        tx_events.clone(),
+        settings_manager.clone(),
+    );
 
     terminal::enable_raw_mode()?;
     let mut terminal = ratatui::init();

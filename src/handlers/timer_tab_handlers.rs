@@ -1,11 +1,13 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    app::{App, Event},
+    app::App,
     error::Error,
     popup::Popup,
     timers::{counters::CounterMode, helper_structs::TimerState},
 };
+
+use super::event_handler::Event;
 
 impl App {
     pub async fn handle_timer_tab(&mut self, key_event: KeyEvent) {

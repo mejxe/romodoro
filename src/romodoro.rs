@@ -3,8 +3,8 @@ use std::{cell::RefCell, rc::Rc};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    app::Event,
     error::{Result, StatsError},
+    handlers::event_handler::Event,
     settings::{PomodoroSettings, Settings},
     stats::pixela::{
         pixela_client::PixelaClient,
@@ -26,12 +26,14 @@ pub struct Pomodoro {
     settings: Rc<RefCell<Settings>>,
     pixela_client: Option<PixelaClient>,
     duration_since_last_save: Seconds,
+    event_transmiter: tokio::sync::mpsc::Sender<Event>,
 }
 impl Pomodoro {
     pub fn new(
         time_sender: tokio::sync::mpsc::Sender<Seconds>,
         command_rx: tokio::sync::mpsc::Receiver<TimerCommand>,
         command_tx: tokio::sync::mpsc::Sender<TimerCommand>,
+        event_transmiter: tokio::sync::mpsc::Sender<Event>,
         settings: Rc<RefCell<Settings>>,
     ) -> Self {
         let mut timer = Timer::from(settings.borrow().timer_settings.clone());
@@ -45,6 +47,7 @@ impl Pomodoro {
             settings,
             pixela_client: None,
             duration_since_last_save: 0,
+            event_transmiter,
         }
     }
     pub fn get_current_subject(&self) -> Option<Subject> {
@@ -87,7 +90,8 @@ impl Pomodoro {
             if !user.validate_not_empty() {
                 Err(StatsError::UserNotProvided().into())
             } else {
-                self.pixela_client = Some(PixelaClient::try_new(user)?);
+                self.pixela_client =
+                    Some(PixelaClient::try_new(user, self.event_transmiter.clone())?);
                 Ok(())
             }
         } else {

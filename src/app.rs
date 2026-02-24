@@ -1,8 +1,10 @@
 use crate::error::Error;
+use crate::handlers::event_handler::Event;
 use crate::popup::Popup;
 use crate::romodoro::Pomodoro;
 use crate::settings::*;
 use crate::stats::pixela::graph::Graph;
+use crate::stats::pixela::subjects::Subject;
 use crate::timers::counters::CounterMode;
 use crate::ui::app_ui::AppWidget;
 use crate::ui::helpers::Modal;
@@ -36,18 +38,6 @@ pub struct App {
     clipboard: Option<Clipboard>,
     event_tx: tokio::sync::mpsc::Sender<Event>,
     terminal_too_small: bool,
-}
-pub enum Event {
-    TimerTick(i64),
-    KeyPress(KeyEvent),
-    TerminalEvent,
-    OverwriteTimerSettings,
-    OverwriteTimerForSubject(usize),
-    SendPixels,
-    DeletePixel,
-    RequestGraph,
-    RestartTimer,
-    GraphReceived(Result<Graph, Error>),
 }
 impl App {
     pub fn new(
