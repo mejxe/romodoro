@@ -15,7 +15,6 @@ pub enum Mode {
     Input,
     #[default]
     Normal,
-    Modify,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -116,26 +115,19 @@ impl Settings {
     pub fn counter_mode(&self) -> CounterMode {
         self.timer_settings.mode
     }
-    pub fn tab_right(&mut self) {
-        self.selected_tab = self.selected_tab.right()
-    }
-    pub fn tab_left(&mut self) {
-        self.selected_tab = self.selected_tab.left()
-    }
-    pub fn tab_up(&mut self) {
-        let pomodoro_off = self.timer_settings.mode == CounterMode::Countup;
-        self.selected_tab = self.selected_tab.up(pomodoro_off)
-    }
-    pub fn tab_down(&mut self) {
-        let pomodoro_off = self.timer_settings.mode == CounterMode::Countup;
-        self.selected_tab = self.selected_tab.down(pomodoro_off)
-    }
 
     pub fn select_down(&mut self) {
         if self.selected_tab == SettingsTabs::Stats && !self.stats_setting.stats_on {
             return;
         }
         let num_of_settings = self.selected_tab.amount();
+        if let (CounterMode::Countup, SettingsTabs::Pomodoro) =
+            (self.timer_settings.mode, self.selected_tab)
+        {
+            if self.selected_setting == 0 {
+                self.selected_setting = 3;
+            }
+        }
         if self.selected_setting < num_of_settings - 1 {
             self.selected_setting += 1;
         }
@@ -144,50 +136,35 @@ impl Settings {
         if self.selected_setting > 0 {
             self.selected_setting -= 1;
         }
-    }
-    pub fn decrement(&mut self) {
-        if self.mode != Mode::Modify {
-            return;
-        }
-        match self.selected_tab {
-            SettingsTabs::Mode => self.timer_settings.mode.next(),
-            SettingsTabs::Pomodoro => match self.selected_setting {
-                0 if self.timer_settings.work_time - WORK_TIME_INCR > 0 => {
-                    self.timer_settings.work_time -= WORK_TIME_INCR;
-                }
-                1 if self.timer_settings.break_time - BREAK_TIME_INCR > 0 => {
-                    self.timer_settings.break_time -= BREAK_TIME_INCR
-                }
-                2 if self.timer_settings.iterations - 1 > 0 => self.timer_settings.iterations -= 1,
-                _ => {}
-            },
-            SettingsTabs::Preferences => match self.selected_setting {
-                0 => self.ui_settings.pause_after_state_change = true,
-                1 => self.ui_settings.hide_work_countdown = true,
-                _ => {}
-            },
-            SettingsTabs::Stats => {
-                if let 0 = self.selected_setting {
-                    self.set_stats(true);
-                }
+        if let (CounterMode::Countup, SettingsTabs::Pomodoro) =
+            (self.timer_settings.mode, self.selected_tab)
+        {
+            if self.selected_setting == 3 {
+                self.selected_setting = 0;
             }
         }
     }
-    pub fn increment(&mut self) {
-        if self.mode != Mode::Modify {
-            return;
-        }
+    pub fn decrement(&mut self) {
         match self.selected_tab {
-            SettingsTabs::Mode => self.timer_settings.mode.next(),
             SettingsTabs::Pomodoro => match self.selected_setting {
-                0 => self.timer_settings.work_time += WORK_TIME_INCR,
-                1 => self.timer_settings.break_time += BREAK_TIME_INCR,
-                2 => self.timer_settings.iterations += 1,
-                _ => {}
-            },
-            SettingsTabs::Preferences => match self.selected_setting {
-                0 => self.ui_settings.pause_after_state_change = false,
-                1 => self.ui_settings.hide_work_countdown = false,
+                0 => self.timer_settings.mode.next(),
+                1 if self.timer_settings.work_time.saturating_sub(WORK_TIME_INCR) > 0 => {
+                    self.timer_settings.work_time -= WORK_TIME_INCR;
+                }
+                2 if self
+                    .timer_settings
+                    .break_time
+                    .saturating_sub(BREAK_TIME_INCR)
+                    > 0 =>
+                {
+                    self.timer_settings.break_time -= BREAK_TIME_INCR
+                }
+                3 if self.timer_settings.iterations.saturating_sub(1) > 0 => {
+                    self.timer_settings.iterations -= 1
+                }
+                4 => self.ui_settings.pause_after_state_change = false,
+                5 => self.ui_settings.hide_work_countdown = false,
+
                 _ => {}
             },
             SettingsTabs::Stats => {
@@ -197,18 +174,38 @@ impl Settings {
             }
         }
     }
-    fn do_pomodoro_settings_match(&self, timer: &Timer) -> bool {
+    pub fn increment(&mut self) {
+        match self.selected_tab {
+            SettingsTabs::Pomodoro => match self.selected_setting {
+                0 => self.timer_settings.mode.next(),
+                1 => self.timer_settings.work_time += WORK_TIME_INCR,
+                2 => self.timer_settings.break_time += BREAK_TIME_INCR,
+                3 => self.timer_settings.iterations += 1,
+                4 => self.ui_settings.pause_after_state_change = true,
+                5 => self.ui_settings.hide_work_countdown = true,
+                _ => {}
+            },
+            SettingsTabs::Stats => {
+                if let 0 = self.selected_setting {
+                    self.set_stats(true);
+                }
+            }
+        }
+    }
+    pub fn do_pomodoro_settings_match(&self, timer: &Timer) -> bool {
         self.timer_settings.iterations == timer.total_iterations()
             && self.timer_settings.work_time == timer.work_time()
             && timer.counter_mode() == self.timer_settings.mode
             && self.timer_settings.break_time == timer.break_time()
     }
-    pub fn do_settings_match(&self, timer: &Timer, stats: Option<&PixelaClient>) -> bool {
-        let pomodoro_match = match timer.counter_mode() {
+    pub fn do_timer_settings_match(&self, timer: &Timer) -> bool {
+        match timer.counter_mode() {
             CounterMode::Countup => self.timer_settings.mode == CounterMode::Countup,
             CounterMode::Countdown => self.do_pomodoro_settings_match(timer),
-        };
-        let stats_match = if let Some(pixela) = stats {
+        }
+    }
+    pub fn do_stats_settings_match(&self, stats: Option<&PixelaClient>) -> bool {
+        if let Some(pixela) = stats {
             self.stats_setting.stats_on
                 && self
                     .stats_setting
@@ -224,8 +221,7 @@ impl Settings {
                     == pixela.user.token()
         } else {
             !self.stats_setting.stats_on
-        };
-        pomodoro_match && stats_match
+        }
     }
     pub fn set_stats(&mut self, on: bool) {
         self.stats_setting.stats_on = on;
@@ -274,6 +270,10 @@ impl Settings {
             }
             _ => {}
         };
+    }
+
+    pub fn set_selected_tab(&mut self, selected_tab: SettingsTabs) {
+        self.selected_tab = selected_tab;
     }
 }
 #[cfg(test)]

@@ -4,7 +4,7 @@ pub mod graph;
 pub mod helpers;
 pub mod pomodoro_tab;
 pub mod popup;
-pub mod settings_tab;
+pub mod settings_modal;
 pub mod stats_tab;
 pub mod ui_utils;
 

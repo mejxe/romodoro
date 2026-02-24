@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Flex, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     widgets::{
         Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Widget, Wrap,
@@ -91,7 +91,7 @@ impl Popup {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_type(BorderType::Double)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(GREEN)),
             );
         yes_paragraph.render(button_layout[0], buf);
@@ -102,7 +102,7 @@ impl Popup {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_type(BorderType::Double)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(RED)),
             );
         no_paragraph.render(button_layout[1], buf);
@@ -225,7 +225,7 @@ impl Popup {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_type(BorderType::Double)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(GREEN)),
             );
         yes_paragraph.render(button_layout[0], buf);
@@ -236,7 +236,7 @@ impl Popup {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_type(BorderType::Double)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(RED)),
             );
         no_paragraph.render(button_layout[1], buf);
@@ -324,7 +324,16 @@ impl Popup {
 }
 
 /// helper function to create a centered rect using up certain percentage of the available rect
-pub fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+pub fn popup_area(area: Rect, mut percent_x: u16, mut percent_y: u16) -> Rect {
+    if area.height < 30 {
+        percent_y = 80;
+        percent_x = 80;
+    } else if (area.height < 40) {
+        percent_y = 50;
+    }
+    if (area.width < 80) {
+        percent_x = 80;
+    }
     let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
     let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
     let [area] = vertical.areas(area);

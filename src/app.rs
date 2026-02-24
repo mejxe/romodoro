@@ -1,10 +1,13 @@
 use crate::error::Error;
+use crate::handlers::event_handler::Event;
 use crate::popup::Popup;
 use crate::romodoro::Pomodoro;
 use crate::settings::*;
 use crate::stats::pixela::graph::Graph;
+use crate::stats::pixela::subjects::Subject;
 use crate::timers::counters::CounterMode;
 use crate::ui::app_ui::AppWidget;
+use crate::ui::helpers::Modal;
 use crate::ui::popup::popup_area;
 use crate::utils::tabs::Tabs;
 use arboard::Clipboard;
@@ -30,21 +33,11 @@ pub struct App {
     settings: Rc<RefCell<Settings>>,
     popup: Option<Popup>, // TODO: popup queue maybe so they don't overwrite each other?
     popup_size: Rect,
+    modal: Option<Modal>,
     #[derivative(Debug = "ignore")]
     clipboard: Option<Clipboard>,
     event_tx: tokio::sync::mpsc::Sender<Event>,
-}
-pub enum Event {
-    TimerTick(i64),
-    KeyPress(KeyEvent),
-    TerminalEvent,
-    OverwriteTimerSettings,
-    OverwriteTimerForSubject(usize),
-    SendPixels,
-    DeletePixel,
-    RequestGraph,
-    RestartTimer,
-    GraphReceived(Result<Graph, Error>),
+    terminal_too_small: bool,
 }
 impl App {
     pub fn new(
@@ -58,9 +51,11 @@ impl App {
             selected_tab: Tabs::TimerTab,
             settings,
             popup: None,
+            modal: None,
             clipboard: Clipboard::new().ok(),
             event_tx,
             popup_size: Rect::default(),
+            terminal_too_small: false,
         }
     }
     pub async fn run(
@@ -291,5 +286,24 @@ impl App {
 
     pub fn popup_size(&self) -> Rect {
         self.popup_size
+    }
+    pub fn is_modal_showing(&self) -> bool {
+        self.modal.is_some()
+    }
+
+    pub fn modal(&self) -> Option<&Modal> {
+        self.modal.as_ref()
+    }
+
+    pub fn set_modal(&mut self, modal: Option<Modal>) {
+        self.modal = modal;
+    }
+
+    pub fn set_terminal_too_small(&mut self, terminal_too_small: bool) {
+        self.terminal_too_small = terminal_too_small;
+    }
+
+    pub fn terminal_too_small(&self) -> bool {
+        self.terminal_too_small
     }
 }

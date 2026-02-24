@@ -2,12 +2,12 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::Span,
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
 };
 
 use crate::{settings::Mode, utils::settings_helper_structs::SettingsTabs};
 
-use super::{app_ui::AppWidget, settings_tab::SettingsTab, BLUE, GREEN, YELLOW};
+use super::{app_ui::AppWidget, GREEN, YELLOW};
 #[derive(Clone, Copy)]
 pub struct UISettingsTabData {
     pub selected_setting: u8,
@@ -15,40 +15,6 @@ pub struct UISettingsTabData {
     pub current_mode: Mode,
 }
 
-impl SettingsTab<'_> {
-    pub fn highlight_selected(
-        selected_num: u8,
-        selected_tab: SettingsTabs,
-        setting_tab: SettingsTabs,
-        setting_num: u8,
-        current_mode: Mode,
-    ) -> Style {
-        if setting_num == selected_num && selected_tab == setting_tab {
-            match current_mode {
-                Mode::Modify => Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
-                Mode::Input => Style::default().fg(BLUE).add_modifier(Modifier::REVERSED),
-                Mode::Normal => Style::default().fg(GREEN),
-            }
-        } else {
-            Style::default().fg(GREEN)
-        }
-    }
-    pub fn highlight_selected_tab(
-        selected_tab: SettingsTabs,
-        setting_tab: SettingsTabs,
-        current_mode: Mode,
-    ) -> BorderType {
-        if selected_tab == setting_tab
-            && (current_mode == Mode::Modify || current_mode == Mode::Input)
-        {
-            BorderType::QuadrantInside
-        } else if selected_tab == setting_tab {
-            BorderType::Double
-        } else {
-            BorderType::Rounded
-        }
-    }
-}
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     // Cut the given rectangle into three vertical pieces
     let popup_layout = Layout::default()
@@ -72,24 +38,6 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 pub struct UIHelper {}
 impl<'a> UIHelper {
-    pub fn create_settings_block(
-        title: &str,
-        color: Color,
-        selected_tab: SettingsTabs,
-        setting_tab: SettingsTabs,
-        current_mode: Mode,
-    ) -> Block<'a> {
-        Block::default()
-            .title(format!(" {} ", title))
-            .title_alignment(Alignment::Center)
-            .borders(Borders::ALL)
-            .border_type(SettingsTab::highlight_selected_tab(
-                selected_tab,
-                setting_tab,
-                current_mode,
-            ))
-            .border_style(Style::default().fg(color))
-    }
     pub fn create_settings_paragraph(title: &str, highlight_style: Option<Style>) -> Paragraph<'a> {
         let style = if let Some(hi) = highlight_style {
             hi
@@ -110,7 +58,6 @@ impl<'a> UIHelper {
         if value_that_highlights == current_value
             && tab_data.selected_setting == this_setting
             && tab_data.selected_tab == this_tab
-            && tab_data.current_mode == Mode::Modify
         {
             Style::default().fg(YELLOW).underlined()
         } else if value_that_highlights == current_value {
@@ -137,7 +84,6 @@ impl HintProvider for AppWidget<'_> {
     fn provide_hints(&self) -> Vec<FooterHint> {
         vec![
             FooterHint::new("Tab", "Next tab"),
-            FooterHint::new("S-Tab", "Prev tab"),
             FooterHint::new("Q", "Quit"),
         ]
     }

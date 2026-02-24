@@ -1,12 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    app::{App, Event},
+    app::App,
     error::Error,
     popup::Popup,
     settings::PomodoroSettings,
     stats::pixela::pixela_client::{PixelaClient, PixelaTabs},
 };
+
+use super::event_handler::Event;
 
 impl App {
     pub async fn handle_pixela_keybinds(&mut self, key_event: KeyEvent) {

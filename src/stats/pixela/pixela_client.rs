@@ -2,6 +2,7 @@ use std::{collections::HashMap, fs, future::Future, time::Duration, vec};
 
 use crate::{
     error::{Error, FatalError, PixelaResponseError, Result, SettingsError, StatsError},
+    handlers::event_handler::Event,
     stats::{
         pixel::{Pixel, SimplePixel},
         pixela::subjects::SubjectDataType,
@@ -52,9 +53,13 @@ pub struct PixelaClient {
     pixels_to_send: Vec<usize>,
     current_subject_index: usize,
     current_graph: Option<Graph>,
+    event_tx: tokio::sync::mpsc::Sender<Event>,
 }
 impl PixelaClient {
-    pub fn try_new(user: PixelaUser) -> Result<PixelaClient> {
+    pub fn try_new(
+        user: PixelaUser,
+        event_tx: tokio::sync::mpsc::Sender<Event>,
+    ) -> Result<PixelaClient> {
         let pixel_res = PixelaClient::load_pixels(&user);
         let pixel_vec: Vec<Pixel> = match pixel_res {
             Ok(pixels) => pixels,
@@ -80,6 +85,7 @@ impl PixelaClient {
             pixels_to_send: vec![0; 2 * pixel_len],
             current_subject_index: 0,
             current_graph: None,
+            event_tx,
         })
     }
     pub fn add_pixel(
@@ -254,38 +260,41 @@ impl PixelaClient {
         if !self.user.validate_not_empty() {
             return Err(StatsError::UserNotProvided().into());
         };
-        self.sync_subjects().await?;
-        self.logged_in = true;
+        let client = self.client.clone();
+        let user = self.user.clone();
+        let tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            PixelaClient::sync_subjects(tx, client, user).await;
+        });
         Ok(())
     }
-    async fn sync_subjects(&mut self) -> Result<()> {
-        let mut response = PixelaClient::request_subjects(
-            self.client.clone(),
-            self.user.username(),
-            self.user.token(),
-        );
+    async fn sync_subjects(tx: tokio::sync::mpsc::Sender<Event>, client: Client, user: PixelaUser) {
+        let mut response =
+            PixelaClient::request_subjects(client.clone(), user.username(), user.token());
         loop {
+            // TODO: change to an other thread and send back to event handler
             match response.await {
                 Err(resp) => {
                     match resp {
                         Error::PixelaResponseError(PixelaResponseError::RetryableError(_, _)) => {
                             response = PixelaClient::request_subjects(
-                                self.client.clone(),
-                                self.user.username(),
-                                self.user.token(),
+                                client.clone(),
+                                user.username(),
+                                user.token(),
                             )
                         }
-                        _ => return Err(resp),
+                        _ => {
+                            let _ = tx.send(Event::LoggedIn(Err(resp))).await;
+                            return;
+                        }
                     };
                 }
-                Ok(mut subjects) => {
-                    self.subjects.items_mut().append(&mut subjects);
-                    break;
+                Ok(subjects) => {
+                    let _ = tx.send(Event::LoggedIn(Ok(subjects))).await;
+                    return;
                 }
             }
         }
-
-        Ok(())
     }
     pub async fn request_graph(&mut self) -> Result<()> {
         if let Some(subject_index) = self.subjects.state().selected() {
@@ -372,11 +381,15 @@ impl PixelaClient {
         if let Some(index) = self.pixels.state().selected() {
             self.pixels.items_mut().remove(index);
             self.save_pixels()?;
+            self.clear_selected_to_send();
         };
         Ok(())
     }
     pub fn subjects(&self) -> Vec<&Subject> {
         self.subjects.iter().collect()
+    }
+    fn clear_selected_to_send(&mut self) {
+        self.pixels_to_send = vec![0; self.pixels_to_send.len()]
     }
 
     pub fn logged_in(&self) -> bool {
@@ -465,7 +478,7 @@ impl PixelaClient {
             )
             .into_iter()
             .map(|entry| {
-                let mut pixel = ComplexPixel::new(
+                let pixel = ComplexPixel::new(
                     Progress::Int(entry.1 .0),
                     entry.0 .1.clone(),
                     entry.0 .0.clone().to_string(),
